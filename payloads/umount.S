@@ -1,5 +1,5 @@
 /*
- * umount.S -- umount syscall 838 patch         
+ * umount.S -- umount syscall 838 patch
  *
  * Copyright (C) (Estwald)
  * Copyright (C) (D_Skywalk)
@@ -22,6 +22,10 @@
 #include "firmware_symbols_355dex.h"
 #endif
 
+#ifdef CFW_355deh
+#include "firmware_symbols_355deh.h"
+#endif
+
 #ifdef CFW_421
 #include "firmware_symbols_421.h"
 #endif
@@ -34,12 +38,12 @@
 #include "firmware_symbols_430.h"
 #endif
 
-#ifdef CFW_431
-#include "firmware_symbols_431.h"
-#endif
-
 #ifdef CFW_430dex
 #include "firmware_symbols_430dex.h"
+#endif
+
+#ifdef CFW_431
+#include "firmware_symbols_431.h"
 #endif
 
 #ifdef CFW_440
@@ -50,8 +54,16 @@
 #include "firmware_symbols_441.h"
 #endif
 
+#ifdef CFW_441dex
+#include "firmware_symbols_441dex.h"
+#endif
+
 #ifdef CFW_446
 #include "firmware_symbols_446.h"
+#endif
+
+#ifdef CFW_446dex
+#include "firmware_symbols_446dex.h"
 #endif
 
 #ifdef CFW_450
@@ -66,8 +78,16 @@
 #include "firmware_symbols_453.h"
 #endif
 
+#ifdef CFW_453dex
+#include "firmware_symbols_453dex.h"
+#endif
+
 #ifdef CFW_455
 #include "firmware_symbols_455.h"
+#endif
+
+#ifdef CFW_455dex
+#include "firmware_symbols_455dex.h"
 #endif
 
 #ifdef CFW_460
@@ -110,8 +130,24 @@
 #include "firmware_symbols_475dex.h"
 #endif
 
-#ifdef CFW_476
-#include "firmware_symbols_476.h"
+#ifdef CFW_475deh
+#include "firmware_symbols_475deh.h"
+#endif
+
+#ifdef CFW_480
+#include "firmware_symbols_480.h"
+#endif
+
+#ifdef CFW_480dex
+#include "firmware_symbols_480dex.h"
+#endif
+
+#ifdef CFW_480deh
+#include "firmware_symbols_480deh.h"
+#endif
+
+#ifdef CFW_481dex
+#include "firmware_symbols_481dex.h"
 #endif
 
 #define ABS(target) ((target) - (BASE2) - .)
@@ -139,10 +175,10 @@ umount_sys_patch: // 0x1B509C
     std      %r5, 0xE0(%sp)
     std      %r29, 0xE8(%sp)
     std      %r31, 0xF8(%sp)
-    
+
     MEM_BASE(%r31)
     LOAD_LABEL2(%r4, %r31, aDev_bdvd)
-    
+
     oris   %r29, %r31, 0x7E    // 0x7EF000 -> backup of /dev_bdvd
     ori    %r29, %r29, 0xF000
 

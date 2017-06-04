@@ -27,7 +27,7 @@
  * system and build other things from it.
  *
  * No source? Syscall8 and new hook is not welcomed in your disturbing projects.
- * I am not interested in any line from your source, but scene play together... 
+ * I am not interested in any line from your source, but scene play together...
  *
  * - D_Skywalk, syscall8 + hook_table for 3.55 developer -
  *
@@ -46,6 +46,10 @@
 #include "firmware_symbols_355dex.h"
 #endif
 
+#ifdef CFW_355deh
+#include "firmware_symbols_355deh.h"
+#endif
+
 #ifdef CFW_421
 #include "firmware_symbols_421.h"
 #endif
@@ -58,12 +62,12 @@
 #include "firmware_symbols_430.h"
 #endif
 
-#ifdef CFW_431
-#include "firmware_symbols_431.h"
-#endif
-
 #ifdef CFW_430dex
 #include "firmware_symbols_430dex.h"
+#endif
+
+#ifdef CFW_431
+#include "firmware_symbols_431.h"
 #endif
 
 #ifdef CFW_440
@@ -74,8 +78,16 @@
 #include "firmware_symbols_441.h"
 #endif
 
+#ifdef CFW_441dex
+#include "firmware_symbols_441dex.h"
+#endif
+
 #ifdef CFW_446
 #include "firmware_symbols_446.h"
+#endif
+
+#ifdef CFW_446dex
+#include "firmware_symbols_446dex.h"
 #endif
 
 #ifdef CFW_450
@@ -90,8 +102,16 @@
 #include "firmware_symbols_453.h"
 #endif
 
+#ifdef CFW_453dex
+#include "firmware_symbols_453dex.h"
+#endif
+
 #ifdef CFW_455
 #include "firmware_symbols_455.h"
+#endif
+
+#ifdef CFW_455dex
+#include "firmware_symbols_455dex.h"
 #endif
 
 #ifdef CFW_460
@@ -134,8 +154,24 @@
 #include "firmware_symbols_475dex.h"
 #endif
 
-#ifdef CFW_476
-#include "firmware_symbols_476.h"
+#ifdef CFW_475deh
+#include "firmware_symbols_475deh.h"
+#endif
+
+#ifdef CFW_480
+#include "firmware_symbols_480.h"
+#endif
+
+#ifdef CFW_480dex
+#include "firmware_symbols_480dex.h"
+#endif
+
+#ifdef CFW_480deh
+#include "firmware_symbols_480deh.h"
+#endif
+
+#ifdef CFW_481dex
+#include "firmware_symbols_481dex.h"
 #endif
 
 #define SYS8_VERSION 0x308
@@ -180,7 +216,7 @@ syscall_8_desc:
 
 open_hook:
     //overwriten by the jump
-    
+
     lbz	    %r4, 0(%r3)
 	cmpwi	%r4, '/'
 	bne	    end_test_bar
@@ -193,13 +229,13 @@ open_hook:
 
  end_test_bar:
 
-    mr      %r29, %r3 
+    mr      %r29, %r3
 
     MEM_BASE(%r31)
-    
+
     LOAD_LABEL2(%r27, %r31, str_open_cmp)
     ld      %r26, 0(%r27)
-    cmpldi  %r26, 0 // if open_table is null go to optimized hook sky 
+    cmpldi  %r26, 0 // if open_table is null go to optimized hook sky
     beq     return_org_open_func
 
 open_table_loop:
@@ -208,14 +244,14 @@ open_table_loop:
     ld      %r4, 0(%r26)  // get compare path (%r27 open_table and %r26 contains the 1st ptr)
     cmpldi  %r4, 0 // check null ptr
     beq     return_org_open_func // null? then we finished...
-    
+
     lwz     %r5, 16(%r26) // get len of compare path
     bl      ABS(strncmp)
 
     cmpldi  %r3, 0 // if ptr is null
     bne     open_table_nextvalue
 
-    lwz     %r5, 16(%r26) 
+    lwz     %r5, 16(%r26)
     add     %r4, %r29, %r5 // &open_path[compare_path_len]
 
     ld      %r3, 8(%r26) // get new path
@@ -274,7 +310,7 @@ syscall8_table:
     .long   0x80000000
     .long   BASE + sys8_perm_mode     //8 - sys8_perm_mode
     .long   0x80000000
-    .long   BASE + sys8_open_table    //9 
+    .long   BASE + sys8_open_table    //9
     .long   0x80000000
     .long   BASE + syscall8_unsupported   //10 - sys8_configure ?
     .long   0x80000000
@@ -302,7 +338,7 @@ syscall8:
 // syscall switch
     andi.   %r3, %r3, 0xff
     cmpldi  %r3, 14
-    bge     syscall8_stealth //org unsupported 
+    bge     syscall8_stealth //org unsupported
 
     MEM_BASE(%r31)
     LOAD_LABEL2(%r27, %r31, syscall8_table)
@@ -384,7 +420,7 @@ sys8_open_table:  // system_call_2(8, 9, ptr)
     std     %r4, 0(%r27)
     blr
 
-sys8_lv1call:  // system_call_2(8, 11, input_reg_table, output_reg_table) 
+sys8_lv1call:  // system_call_2(8, 11, input_reg_table, output_reg_table)
     mflr    %r0
     stdu    %sp, -0xA0(%sp)
     std     %r0, 0xB0(%sp)
@@ -402,7 +438,7 @@ sys8_lv1call:  // system_call_2(8, 11, input_reg_table, output_reg_table)
     ld      %r3, 0x00(%r3)
 
     sc      1
-    
+
     ld      %r11, 0x60(%sp)
 
     std     %r3, 0x00(%r11)
@@ -413,7 +449,7 @@ sys8_lv1call:  // system_call_2(8, 11, input_reg_table, output_reg_table)
     std     %r8, 0x28(%r11)
     std     %r9, 0x30(%r11)
     std     %r10,0x38(%r11)
-    
+
     ld      %r0, 0xB0(%sp)
     addi    %sp, %sp, 0xA0
     mtlr    %r0
@@ -428,16 +464,16 @@ sys8_instcpy:
 
     li      %r6, 0
 sys8_instcpy_1:
-   
+
     lwzx    %r7, %r4, %r6
     stwx    %r7, %r3, %r6
     addi    %r6, %r6, 0x4
     cmpld   %r6, %r5
     bne      sys8_instcpy_1
-   
+
     li      %r6, 0
 sys8_instcpy_2:
-    
+
     dcbf   %r6, %r4
     addi    %r6, %r6, 0x4
     cmpld   %r6, %r5
@@ -455,10 +491,10 @@ sys8_instcpy_3:
 
 sys8_pokeinst:
     std     %r4, 0(%r3)
-   
+
     dcbf   %r0, %r3
     sync    0
-   
+
     icbi    %r0, %r3
     isync
     blr
