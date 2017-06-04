@@ -18,6 +18,13 @@ Gamesonic Manageer fork di Iris Manager
 - Aldo Vargas          
 - Joonie
 - Habib
+-Marcan
+-KaKaRoTo
+-Aaron
+-Kmeaw
+-subdub
+-Hermes
+-Wanin & Drizzt
 
 
 
