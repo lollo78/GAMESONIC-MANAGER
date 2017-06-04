@@ -32,39 +32,38 @@
 #include "defines.h"
 #include "server.h"
 #include "client.h"
+#include "ftp.h"
 
 void listener_thread(void *unused)
 {
-	struct sockaddr_in sa;
-	memset(&sa, 0, sizeof(sa));
-	
-	sa.sin_family = AF_INET;
-	sa.sin_port = htons(21);
-	sa.sin_addr.s_addr = htonl(INADDR_ANY);
-	
-	int list_s = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
-	
-	if(bind(list_s, (struct sockaddr *)&sa, sizeof(sa)) == -1
-	|| listen(list_s, OFTP_LISTEN_BACKLOG) == -1)
-	{
-		appstate = 1;
+    struct sockaddr_in sa;
+    memset(&sa, 0, sizeof(sa));
 
-	}
-	
-	int conn_s;
-	sys_ppu_thread_t id;
-	
-	while(appstate != 1)
-	{
-		if((conn_s = accept(list_s, NULL, NULL)) > 0)
-		{
-			sysThreadCreate(&id, client_thread, (void *)&conn_s, 1337, 0x2000, THREAD_JOINABLE, "client");
-			sysThreadYield();
-		} else sysUsleep(250000);
-	}
-	
-	closesocket(list_s);
-	
-	sysThreadExit(0);
+    sa.sin_family = AF_INET;
+    sa.sin_port = htons(ftp_port);
+    sa.sin_addr.s_addr = htonl(INADDR_ANY);
+
+    int list_s = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
+
+    if(bind(list_s, (struct sockaddr *)&sa, sizeof(sa)) == -1
+    || listen(list_s, OFTP_LISTEN_BACKLOG) == -1)
+    {
+        appstate = 1;
+    }
+
+    int conn_s;
+    sys_ppu_thread_t id;
+
+    while(appstate != 1)
+    {
+        if((conn_s = accept(list_s, NULL, NULL)) > 0)
+        {
+            sysThreadCreate(&id, client_thread, (void *)&conn_s, 1337, 0x2000, THREAD_JOINABLE, "client");
+            sysThreadYield();
+        } else sysUsleep(250000);
+    }
+
+    closesocket(list_s);
+
+    sysThreadExit(0);
 }
-

@@ -1,4 +1,4 @@
-/* 
+/*
     (c) 2011 Hermes/Estwald <www.elotrolado.net>
     IrisManager (HMANAGER port) (c) 2011 D_Skywalk <http://david.dantoine.org>
 
@@ -13,7 +13,7 @@
     GNU General Public License for more details.
 
     You should have received a copy of the GNU General Public License
-    apayloadlong with HMANAGER4.  If not, see <http://www.gnu.org/licenses/>.
+    along with HMANAGER4.  If not, see <http://www.gnu.org/licenses/>.
 
 */
 
@@ -23,35 +23,142 @@ Credits:
 - Rancid-o
 - Zz_SACRO_zZ
 
-*/ 
+*/
 
 #include "utils.h"
 #include "language.h"
 #include <sys/file.h>
 #include "ntfs.h"
 #include "iso.h"
+#include "osk_input.h"
 #include "main.h"
+#include "file_manager.h"
+#include "ftp/functions.h"
 
-#define FS_S_IFMT 0170000
-#define FS_S_IFDIR 0040000
+//---
+#define USB_MASS_STORAGE_1(n)	(0x10300000000000AULL+(n)) /* For 0-5 */
+#define USB_MASS_STORAGE_2(n)	(0x10300000000001FULL+((n)-6)) /* For 6-127 */
+#define USB_MASS_STORAGE(n)	(((n) < 6) ? USB_MASS_STORAGE_1(n) : USB_MASS_STORAGE_2(n))
+
+#define MAX_SECTIONS	((0x10000-sizeof(rawseciso_args))/8)
+
+#define cue_buf  plugin_args
+
+#define MAX_PATH_LEN 0x420
+
+enum DiscEmu
+{
+	EMU_OFF = 0,
+	EMU_PS3,
+	EMU_PS2_DVD,
+	EMU_PS2_CD,
+	EMU_PSX,
+	EMU_BD,
+	EMU_DVD,
+	EMU_MAX,
+};
+
+typedef struct
+{
+	uint64_t device;
+	uint32_t emu_mode;
+	uint32_t num_sections;
+	uint32_t num_tracks;
+} __attribute__((packed)) rawseciso_args;
+
+typedef struct
+{
+	uint32_t lba;
+	int is_audio;
+} TrackDef;
+
+typedef struct _ScsiTrackDescriptor
+{
+	uint8_t reserved;
+	uint8_t adr_control;
+	uint8_t track_number;
+	uint8_t reserved2;
+	uint32_t track_start_addr;
+} __attribute__((packed)) ScsiTrackDescriptor;
+
+int emu_mode;
+u8 cue=0;
+TrackDef tracks[100];
+int i, parts;
+unsigned int num_tracks;
+
+ScsiTrackDescriptor *scsi_tracks;
+uint32_t sections[MAX_SECTIONS], sections_size[MAX_SECTIONS];
+
+rawseciso_args *p_args;
+
+char ntfs_path[MAX_PATH_LEN];
+
+int cobra_parse_cue(void *cue, uint32_t size, TrackDef *tracks, unsigned int max_tracks, unsigned int *num_tracks, char *filename, unsigned int fn_size);
+//--
+
 
 typedef s32 Lv2FsMode;
 typedef s32 Lv2FsFile;
 
+extern bool is_mamba_v2;
+
+extern int filter_by_letter;
+
+extern int num_box;
+extern int show_custom_icons;
 extern char * language[];
 extern char self_path[MAXPATHLEN];
+extern char video_path[MAXPATHLEN];
 extern int game_list_category;
 extern int mode_homebrew;
+
+extern char ps2classic_path[MAXPATHLEN];
+
+extern char audio_extensions[300];
+extern char video_extensions[300];
+extern char browser_extensions[100];
+extern char custom_homebrews[400];
+
+extern int retro_mode;
+
+extern int roms_count;
+extern int max_roms;
+
+// retroArch cores 1.0
+extern char retro_root_path[ROMS_MAXPATHLEN];
+extern char retro_snes_path[ROMS_MAXPATHLEN];
+extern char retro_gba_path[ROMS_MAXPATHLEN];
+extern char retro_gen_path[ROMS_MAXPATHLEN];
+extern char retro_nes_path[ROMS_MAXPATHLEN];
+extern char retro_mame_path[ROMS_MAXPATHLEN];
+extern char retro_fba_path[ROMS_MAXPATHLEN];
+extern char retro_doom_path[ROMS_MAXPATHLEN];
+extern char retro_quake_path[ROMS_MAXPATHLEN];
+extern char retro_pce_path[ROMS_MAXPATHLEN];
+extern char retro_gb_path[ROMS_MAXPATHLEN];
+extern char retro_gbc_path[ROMS_MAXPATHLEN];
+extern char retro_atari_path[ROMS_MAXPATHLEN];
+extern char retro_vb_path[ROMS_MAXPATHLEN];
+extern char retro_nxe_path[ROMS_MAXPATHLEN];
+extern char retro_wswan_path[ROMS_MAXPATHLEN];
+
+// retroArch cores 1.2
+extern char retro_a7800_path[ROMS_MAXPATHLEN];
+extern char retro_lynx_path[ROMS_MAXPATHLEN];
+extern char retro_gw_path[ROMS_MAXPATHLEN];
+extern char retro_vectrex_path[ROMS_MAXPATHLEN];
+extern char retro_2048_path[ROMS_MAXPATHLEN];
 
 //void UTF8_to_Ansi(char *utf8, char *ansi, int len); // from osk_input
 void UTF32_to_UTF8(u32 *stw, u8 *stb);
 
-int copy_async(char *path1, char *path2, u64 size, char *progress_string1, char *progress_string2); // pkg_install.c
-
+int copy_async(char *path1, char *path2, u64 size, char *progress_string1, char *progress_string2);     // pkg_install.c
 int copy_async_gbl(char *path1, char *path2, u64 size, char *progress_string1, char *progress_string2); // updates.c (it can copy to ntfs devices)
 
-msgType mdialogyesno = MSG_DIALOG_NORMAL | MSG_DIALOG_BTN_TYPE_YESNO | MSG_DIALOG_DISABLE_CANCEL_ON | MSG_DIALOG_DEFAULT_CURSOR_NO;
+msgType mdialogyesno = MSG_DIALOG_NORMAL | MSG_DIALOG_BTN_TYPE_YESNO  | MSG_DIALOG_DEFAULT_CURSOR_NO;
 msgType mdialogyesno2 = MSG_DIALOG_NORMAL | MSG_DIALOG_BTN_TYPE_YESNO | MSG_DIALOG_DISABLE_CANCEL_ON;
+msgType mdialogyesno3 = MSG_DIALOG_NORMAL | MSG_DIALOG_BTN_TYPE_YESNO;
 
 msgType mdialogok = MSG_DIALOG_NORMAL | MSG_DIALOG_BTN_TYPE_OK;
 
@@ -61,8 +168,8 @@ volatile int dialog_action = 0;
 
 void my_dialog(msgButton button, void *userdata)
 {
-    switch(button) {
-
+    switch(button)
+    {
         case MSG_DIALOG_BTN_YES:
             dialog_action = 1;
             break;
@@ -72,21 +179,21 @@ void my_dialog(msgButton button, void *userdata)
             dialog_action = 2;
             break;
         default:
-		    break;
+            break;
     }
 }
 
 void my_dialog2(msgButton button, void *userdata)
 {
-    switch(button) {
-
+    switch(button)
+    {
         case MSG_DIALOG_BTN_OK:
         case MSG_DIALOG_BTN_ESCAPE:
         case MSG_DIALOG_BTN_NONE:
             dialog_action = 1;
             break;
         default:
-		    break;
+            break;
     }
 }
 
@@ -94,15 +201,16 @@ static volatile int progress_action2 = 0;
 
 static float bar1_countparts = 0.0f, bar2_countparts = 0.0f;
 
+char extension[10];
 char progress_bar_title[256];
 
-//static msgType mdialogprogress = MSG_DIALOG_SINGLE_PROGRESSBAR | MSG_DIALOG_MUTE_ON;
+static msgType mdialogprogress = MSG_DIALOG_SINGLE_PROGRESSBAR | MSG_DIALOG_MUTE_ON | MSG_DIALOG_DISABLE_CANCEL_ON | MSG_DIALOG_BKG_INVISIBLE;
 static msgType mdialogprogress2 = MSG_DIALOG_DOUBLE_PROGRESSBAR | MSG_DIALOG_MUTE_ON;
 
 static void progress_callback(msgButton button, void *userdata)
 {
-    switch(button) {
-
+    switch(button)
+    {
         case MSG_DIALOG_BTN_OK:
             progress_action2 = 1;
             break;
@@ -114,19 +222,29 @@ static void progress_callback(msgButton button, void *userdata)
             progress_action2 = -1;
             break;
         default:
-		    break;
+            break;
     }
 }
 
+extern bool scan_canceled;
 
-void wait_dialog() 
+bool ps3pad_poll()
 {
+    pad_last_time = 0;
+    ps3pad_read();
 
+    if((old_pad & (BUTTON_CIRCLE_ | BUTTON_TRIANGLE)) || (new_pad & (BUTTON_CIRCLE_ | BUTTON_TRIANGLE))) {scan_canceled = true; return true;}
 
+    return false;
+}
+
+void wait_dialog()
+{
     while(!dialog_action)
-        {
-        sysUtilCheckCallback();tiny3d_Flip();
-        }
+    {
+        sysUtilCheckCallback();
+        tiny3d_Flip();
+    }
 
     msgDialogAbort();
     usleep(100000);
@@ -138,7 +256,7 @@ void DrawDialogOKTimer(char * str, float milliseconds)
 
     msgDialogOpen2(mdialogok, str, my_dialog2, (void*) 0x0000aaab, NULL );
     msgDialogClose(milliseconds);
-            
+
     wait_dialog();
 }
 
@@ -148,7 +266,7 @@ void DrawDialogOK(char * str)
     dialog_action = 0;
 
     msgDialogOpen2(mdialogok, str, my_dialog2, (void*) 0x0000aaab, NULL );
-            
+
     wait_dialog();
 }
 
@@ -159,7 +277,7 @@ void DrawDialogTimer(char * str, float milliseconds)
 
     msgDialogOpen2(mdialog, str, my_dialog2, (void*) 0x0000aaab, NULL );
     msgDialogClose(milliseconds);
-            
+
     wait_dialog();
 }
 
@@ -169,7 +287,7 @@ int DrawDialogYesNoTimer(char * str, float milliseconds)
 
     msgDialogOpen2(mdialogyesno, str, my_dialog, (void*)  0x0000aaaa, NULL );
     msgDialogClose(milliseconds);
-            
+
     wait_dialog();
 
     return dialog_action;
@@ -180,7 +298,18 @@ int DrawDialogYesNo(char * str)
     dialog_action = 0;
 
     msgDialogOpen2(mdialogyesno, str, my_dialog, (void*)  0x0000aaaa, NULL );
-            
+
+    wait_dialog();
+
+    return dialog_action;
+}
+
+int DrawDialogYesNoDefaultYes(char * str)
+{
+    dialog_action = 0;
+
+    msgDialogOpen2(mdialogyesno3, str, my_dialog, (void*)  0x0000aaaa, NULL );
+
     wait_dialog();
 
     return dialog_action;
@@ -192,7 +321,7 @@ int DrawDialogYesNoTimer2(char * str, float milliseconds)
 
     msgDialogOpen2(mdialogyesno2, str, my_dialog, (void*)  0x0000aaaa, NULL );
     msgDialogClose(milliseconds);
-            
+
     wait_dialog();
 
     return dialog_action;
@@ -203,7 +332,7 @@ int DrawDialogYesNo2(char * str)
     dialog_action = 0;
 
     msgDialogOpen2(mdialogyesno2, str, my_dialog, (void*)  0x0000aaaa, NULL );
-            
+
     wait_dialog();
 
     return dialog_action;
@@ -211,33 +340,21 @@ int DrawDialogYesNo2(char * str)
 
 char * LoadFile(char *path, int *file_size)
 {
-    FILE *fp;
+    *file_size = (int)get_filesize(path);
+
+    if(!is_ntfs_path(path)) sysLv2FsChmod(path, FS_S_IFMT | 0777);
+
+    if(*file_size==0) return NULL;
+
     char *mem = NULL;
-    
-    *file_size = 0;
+    mem = malloc(*file_size); if(!mem) return NULL;
 
-    sysLv2FsChmod(path, FS_S_IFMT | 0777);
+    int fd = ps3ntfs_open(path, O_RDONLY, 0777);
 
-    fp = fopen(path, "rb");
-
-	if (fp != NULL) {
-        
-        fseek(fp, 0, SEEK_END);
-		
-        *file_size = ftell(fp);
-        
-        mem = malloc(*file_size);
-
-		if(!mem) {fclose(fp);return NULL;}
-        
-        fseek(fp, 0, SEEK_SET);
-
-		if(*file_size != fread((void *) mem, 1, *file_size, fp)) {
-            fclose(fp); *file_size = 0; free(mem); return NULL;
-        }
-
-		fclose(fp);
-
+    if(fd >= 0)
+    {
+        ps3ntfs_read(fd, mem, *file_size);
+        ps3ntfs_close(fd);
     }
 
     return mem;
@@ -245,242 +362,1002 @@ char * LoadFile(char *path, int *file_size)
 
 int SaveFile(char *path, char *mem, int file_size)
 {
-    FILE *fp;
-   
-    fp = fopen(path, "wb");
+    unlink_secure(path);
 
-	if (fp != NULL) {
-       
-		if(file_size != fwrite((void *) mem, 1, file_size, fp)) {
-            fclose(fp); return -1;
+    int fd = ps3ntfs_open(path, O_WRONLY | O_CREAT | O_TRUNC, 0777);
+
+    if(fd >= 0)
+    {
+        if(ps3ntfs_write(fd, (void *) mem, file_size)!=file_size)
+        {
+            ps3ntfs_close(fd);
+            return FAILED;
         }
+        ps3ntfs_close(fd);
+    }
 
-		fclose(fp);
+    if(!is_ntfs_path(path)) sysLv2FsChmod(path, FS_S_IFMT | 0777);
 
-    } else return -1;
-
-    sysLv2FsChmod(path, FS_S_IFMT | 0777);
-
-    return 0;
+    return SUCCESS;
 }
 
-u8 game_category[3]="??";
-
-int parse_param_sfo(char * file, char *title_name)
+int ExtractFileFromISO(char *iso_file, char *file, char *outfile)
 {
+    if(iso_file[0]=='.' || file_exists(iso_file)==false) return FAILED;
+
+    int fd = ps3ntfs_open(iso_file, O_RDONLY, 0);
+    if(fd >= 0)
+    {
+        u32 flba;
+        u64 size;
+        char *mem = NULL;
+
+        int re = get_iso_file_pos(fd, file, &flba, &size);
+
+        if(!re && (mem = malloc(size)) != NULL)
+        {
+            re = ps3ntfs_read(fd, (void *) mem, size);
+            ps3ntfs_close(fd);
+            if(re == size)
+              SaveFile(outfile, mem, size);
+
+            free(mem);
+
+            return (re == size) ? SUCCESS : FAILED;
+        }
+        else
+            ps3ntfs_close(fd);
+    }
+
+    return FAILED;
+}
+
+u8 game_category[3] = "??";
+
+bool is_ntfs_path(char *path)
+{
+    return (!strncmp(path, "/ntfs", 5) || !strncmp(path, "/ext", 4));
+}
+
+
+bool is_video(char *ext)
+{
+    sprintf(extension, "%s ", ext);
+
+    return (strcasestr(video_extensions, extension) != NULL);
+}
+
+bool is_audio(char *ext)
+{
+    sprintf(extension, "%s ", ext);
+
+    return (strcasestr(audio_extensions, extension) != NULL);
+}
+
+bool is_audiovideo(char *ext)
+{
+    return (is_video(ext) || is_audio(ext));
+}
+
+bool is_browser_file(char *ext)
+{
+    sprintf(extension, "%s ", ext);
+
+    return (strcasestr(browser_extensions, extension) != NULL);
+}
+
+u64 get_filesize(char *path)
+{
+    bool is_ntfs = is_ntfs_path(path);
+
+    if(is_ntfs)
+    {
+        struct stat st;
+        if (ps3ntfs_stat(path, &st) < 0) return 0ULL;
+        return st.st_size;
+    }
+    else
+    {
+        sysFSStat stat;
+        if (sysLv2FsStat(path, &stat) < 0) return 0;
+        return stat.st_size;
+    }
+}
+
+bool isDir( char* path )
+{
+    if(is_ntfs_path(path))
+    {
+        struct stat st;
+        return ps3ntfs_stat(path, &st) >= SUCCESS && (st.st_mode & FS_S_IFDIR);
+    }
+
+    sysFSStat stat;
+    return sysLv2FsStat(path, &stat) == SUCCESS && (stat.st_mode & FS_S_IFDIR);;
+}
+
+bool file_exists( char* path )
+{
+    if(is_ntfs_path(path))
+    {
+        struct stat st;
+        return ps3ntfs_stat(path, &st) >= SUCCESS;
+    }
+
+    sysFSStat stat;
+    return sysLv2FsStat(path, &stat) == SUCCESS;
+}
+
+char * get_extension(char *path)
+{
+    int n = strlen(path);
+    int m = n;
+
+    while(m > 1 && path[m] != '.' && path[m] != '/') m--;
+
+    if(!strcmp(&path[m], ".0"))
+        while(m > 1 && path[m] != '.' && path[m] != '/') m--;
+
+    if(path[m] == '.') return &path[m];
+
+    return &path[n];
+}
+
+char *str_replace(char *orig, char *rep, char *with)
+{
+    char *result; // the return string
+    char *ins;    // the next insert point
+    char *tmp;    // varies
+    int len_rep;  // length of rep
+    int len_with; // length of with
+    int len_front; // distance between rep and end of last rep
+    int count;    // number of replacements
+
+    if (!orig) return NULL;
+
+    if (!rep)
+    {
+        result = malloc(strlen(orig) + 1);
+        strcpy(result, orig);
+        return result;
+    }
+
+    len_rep = strlen(rep);
+
+    if (!with) with = "";
+
+    len_with = strlen(with);
+
+    ins = orig;
+    for (count = 0; (tmp = strstr(ins, rep)); ++count)
+    {
+        ins = tmp + len_rep;
+    }
+
+    // first time through the loop, all the variable are set correctly
+    // from here on,
+    //    tmp points to the end of the result string
+    //    ins points to the next occurrence of rep in orig
+    //    orig points to the remainder of orig after "end of rep"
+    tmp = result = malloc(strlen(orig) + (len_with - len_rep) * count + 1);
+
+    if (!result) return NULL;
+
+    while (count--)
+    {
+        ins = strstr(orig, rep);
+        len_front = ins - orig;
+        tmp = strncpy(tmp, orig, len_front) + len_front;
+        tmp = strcpy(tmp, with) + len_with;
+        orig += len_front + len_rep; // move to next "end of rep"
+    }
+    strcpy(tmp, orig);
+    return result;
+}
+
+char * get_filename(char *path)
+{
+    int n = strlen(path);
+    int m = n;
+
+    while(m > 0 && path[m] != '/') m--;
+
+    if(path[m] == '/') m++;
+
+    return &path[m];
+}
+
+int strcmpext(char *path, char *ext)
+{
+    int path_len = strlen(path);
+    int ext_len = strlen(ext);
+
+    if(ext_len >= path_len) return FAILED;
+
+    return strncasecmp(path + path_len - ext_len, ext, ext_len);
+}
+
+int fix_PS3_EXTRA_attribute(char *path)
+{
+    if(is_ntfs_path(path) || strlen(path) <= 4) return FAILED;
+
+    char filepath[MAXPATHLEN];
+
+    sprintf(filepath, "%s/PS3_EXTRA", path);
+    if(!file_exists(filepath))  return SUCCESS;
+
     Lv2FsFile fd;
     u64 bytes;
     u64 position = 0LL;
-    
-    //*title_name = 0;
 
-    if(!sysLv2FsOpen(file, 0, &fd, S_IRWXU | S_IRWXG | S_IRWXO, NULL, 0))
+    unsigned pos, str, len = 0;
+    unsigned char *mem = NULL;
+
+    sprintf(filepath, "%s/PS3_GAME/PARAM.SFO", path);
+    if(!is_ntfs_path(filepath)) sysLv2FsChmod(filepath, FS_S_IFMT | 0777);
+
+    if(!sysLv2FsOpen(filepath, 0, &fd, S_IREAD | S_IRGRP | S_IROTH, NULL, 0))
+    {
+        sysLv2FsLSeek64(fd, 0, 2, &position);
+        len = (u32) position;
+
+        if(len > 0x4000) {sysLv2FsClose(fd); return -2;}
+
+        mem = (unsigned char *) malloc(len + 16);
+        if(!mem) {sysLv2FsClose(fd); return -2;}
+
+        memset(mem, 0, len + 16);
+
+        sysLv2FsLSeek64(fd, 0, 0, &position);
+
+        if(sysLv2FsRead(fd, mem, len, &bytes) != 0) bytes = 0LL;
+
+        len = (u32) bytes;
+
+        sysLv2FsClose(fd);
+
+        str = (mem[8] + (mem[9]<<8));
+        pos = (mem[0xc] + (mem[0xd]<<8));
+
+        int indx = 0;
+
+        while(str < len)
+        {
+            if(mem[str] == 0) break;
+
+            if(!strncmp((char *) &mem[str], "ATTRIBUTE", 10))
+            {
+                if(!(mem[pos + 2] & 0x2))
+                {
+                    mem[pos + 2] |= 0x2; //Turn on PS3_EXTRA Flag
+
+                    SaveFile(filepath, (char *) mem, len);
+                }
+
+                free(mem);
+                return SUCCESS;
+            }
+            while(mem[str] && str < len) str++; str++;
+            pos  += (mem[0x1c + indx] + (mem[0x1d + indx]<<8));
+            indx += 16;
+        }
+
+        if(mem) free(mem);
+    }
+    return FAILED;
+}
+
+int get_field_param_sfo(char *file, char *fieldname, char *value, int field_len)
+{
+    if(is_ntfs_path(file) || strlen(file) <= 4) return FAILED;
+    if(strncmp(file + strlen(file) - 4, ".SFO", 4)) return FAILED;
+    if(!file_exists(file)) return FAILED;
+
+    Lv2FsFile fd;
+    u64 bytes;
+    u64 position = 0LL;
+
+    unsigned pos, str, len = 0;
+    unsigned char *mem = NULL;
+
+    if(!sysLv2FsOpen(file, 0, &fd, S_IREAD | S_IRGRP | S_IROTH, NULL, 0))
+    {
+        sysLv2FsLSeek64(fd, 0, 2, &position);
+        len = (u32) position;
+
+        if(len > 0x4000) {sysLv2FsClose(fd); return -2;}
+
+        mem = (unsigned char *) malloc(len + 16);
+        if(!mem) {sysLv2FsClose(fd); return -2;}
+
+        memset(mem, 0, len + 16);
+
+        sysLv2FsLSeek64(fd, 0, 0, &position);
+
+        if(sysLv2FsRead(fd, mem, len, &bytes) != 0) bytes = 0LL;
+
+        len = (u32) bytes;
+
+        sysLv2FsClose(fd);
+
+        str = (mem[8] + (mem[9]<<8));
+        pos = (mem[0xc] + (mem[0xd]<<8));
+
+        int indx = 0, fieldname_len;
+
+        fieldname_len = strlen(fieldname);
+
+        while(str < len)
+        {
+            if(mem[str] == 0) break;
+
+            if(!strncmp((char *) &mem[str], fieldname, fieldname_len + 1))
+            {
+                memcpy(value, (char *) &mem[pos], field_len);
+                value[field_len] = 0;
+
+                free(mem);
+                return SUCCESS;
+            }
+            while(mem[str] && str < len) str++; str++;
+            pos  += (mem[0x1c + indx] + (mem[0x1d + indx]<<8));
+            indx += 16;
+        }
+
+
+        if(strcmp(fieldname, "APP_VER") == SUCCESS)
+        {
+            str = (mem[8] + (mem[9]<<8));
+            pos = (mem[0xc] + (mem[0xd]<<8));
+
+            indx = 0;
+
+            while(str < len)
+            {
+                if(mem[str] == 0) break;
+
+                if(!strncmp((char *) &mem[str], "VERSION", 8))
+                {
+                    memcpy(value, (char *) &mem[pos], 5);
+                    value[field_len] = 0;
+
+                    free(mem);
+                    return SUCCESS;
+                }
+                while(mem[str] && str < len) str++; str++;
+                pos  += (mem[0x1c + indx] + (mem[0x1d + indx]<<8));
+                indx += 16;
+            }
+        }
+
+        if(mem) free(mem);
+    }
+
+    return FAILED;
+}
+
+int edit_title_param_sfo(char * file)
+{
+    int ret = FAILED;
+
+    bool more = false;
+
+    char sfo[MAX_PATH_LEN]; // sfo path + file name
+
+    char title_name[64];
+
+    char title_id[10] = "         ";
+    char ps3_sys_ver[8] = "00.0000";
+
+    char sub_title[128];
+    char savedata_directory[64];
+
+    if(!strncmp(file, "/bdvd", 5) || is_ntfs_path(file) || strlen(file) <= 4)
+    {
+        DrawDialogOKTimer("PARAM.SFO cannot be edited on this device", 3000.0f);
+        return FAILED;
+    }
+    if(strncmp(file + strlen(file) - 4, ".SFO", 4)) return FAILED;
+    if(!file_exists(file)) return FAILED;
+
+    strcpy(sfo, file);
+
+    ret = parse_param_sfo(sfo, title_name);
+
+    if(Get_OSK_String("New Title", title_name, 63) == SUCCESS)
+    {
+        ps3pad_poll();
+        if(old_pad & (BUTTON_SELECT | BUTTON_L1 | BUTTON_R1 | BUTTON_L2 | BUTTON_R2))
+        {
+            if(strcmp((const char *) game_category, "SD") == SUCCESS)
+            {
+                ret = get_field_param_sfo(sfo, "SUB_TITLE", sub_title, 127);
+                if(Get_OSK_String("Subtitle", sub_title, 127) != SUCCESS) return FAILED;
+
+                ret = get_field_param_sfo(sfo, "SAVEDATA_DIRECTORY", savedata_directory, 63);
+                if(Get_OSK_String("Save Data Directory", savedata_directory, 63) != SUCCESS) return FAILED;
+            }
+            else
+            {
+                ret = get_field_param_sfo(sfo, "TITLE_ID", title_id, 9);
+                if(Get_OSK_String("Title ID", title_id, 9) != SUCCESS) return FAILED;
+
+                ret = get_field_param_sfo(sfo, "PS3_SYSTEM_VER", ps3_sys_ver, 7);
+                if(Get_OSK_String("PS3 System Version", ps3_sys_ver, 7) != SUCCESS) return FAILED;
+            }
+
+            more = true;
+        }
+
+        Lv2FsFile fd;
+        u64 bytes;
+        u64 position = 0LL;
+
+        if(!sysLv2FsOpen(sfo, 0, &fd, S_IREAD | S_IRGRP | S_IROTH, NULL, 0))
+        {
+            unsigned len, pos, str;
+            unsigned char *mem = NULL;
+
+            sysLv2FsLSeek64(fd, 0, 2, &position);
+            len = (u32) position;
+
+            if(len > 0x4000) {sysLv2FsClose(fd); return -2;}
+
+            mem = (unsigned char *) malloc(len + 16);
+            if(!mem) {sysLv2FsClose(fd); return -2;}
+
+            memset(mem, 0, len + 16);
+
+            sysLv2FsLSeek64(fd, 0, 0, &position);
+
+            if(sysLv2FsRead(fd, mem, len, &bytes)!=0) bytes = 0LL;
+
+            len = (u32) bytes;
+
+            sysLv2FsClose(fd);
+
+            str = (mem[8] + (mem[9]<<8));
+            pos = (mem[0xc] + (mem[0xd]<<8));
+
+            int indx = 0;
+            int ct = 0;
+
+            while(str < len)
+            {
+                if(mem[str] == 0) break;
+
+                if(!strncmp((char *) &mem[str], "TITLE", 6))
+                {
+                    title_name[63] = 0;
+                    for(int i = 0; title_name[i] && (i < 64); i++) mem[pos + i] = title_name[i];
+                    ct++;
+                }
+                else if(more)
+                {
+                    if(!strncmp((char *) &mem[str], "TITLE_ID", 8))
+                    {
+                        title_id[9] = 0;
+                        for(int i = 0; title_id[i] && (i < 10); i++) mem[pos + i] = title_id[i];
+                        ct++;
+                    }
+                    else if(!strncmp((char *) &mem[str], "PS3_SYSTEM_VER", 14))
+                    {
+                        ps3_sys_ver[7] = 0;
+                        for(int i = 0; ps3_sys_ver[i] && (i < 7); i++) mem[pos + i] = ps3_sys_ver[i];
+                        ct++;
+                    }
+                    else if(!strncmp((char *) &mem[str], "SUB_TITLE", 9))
+                    {
+                        sub_title[127] = 0;
+                        for(int i = 0; sub_title[i] && (i < 128); i++) mem[pos + i] = sub_title[i];
+                        ct++;
+                    }
+                    else if(!strncmp((char *) &mem[str], "SAVEDATA_DIRECTORY", 18))
+                    {
+                        savedata_directory[63] = 0;
+                        for(int i = 0; savedata_directory[i] && (i < 64); i++) mem[pos + i] = savedata_directory[i];
+                        ct++;
+                    }
+                }
+
+                if(ct >= (more ? 3 : 1)) break;
+
+                while(mem[str] && str < len) str++; str++;
+                pos  += (mem[0x1c + indx] + (mem[0x1d + indx]<<8));
+                indx += 16;
+            }
+
+            ret = FAILED;
+
+            if(mem)
+            {
+                ret = SaveFile(sfo, (char *) mem, len);
+                free(mem);
+            }
+
+            return ret;
+        }
+        else
+            DrawDialogOKTimer("Error opening PARAM.SFO", 3000.0f);
+    }
+
+    return FAILED;
+}
+
+int parse_param_sfo(char * file, char *title_name)
+{
+    if(is_ntfs_path(file) || strlen(file) <= 4) return FAILED;
+    if(strncmp(file + strlen(file) - 4, ".SFO", 4)) return FAILED;
+    if(!file_exists(file)) return FAILED;
+
+    Lv2FsFile fd;
+    u64 bytes;
+    u64 position = 0LL;
+
+    if(!sysLv2FsOpen(file, 0, &fd, S_IREAD | S_IRGRP | S_IROTH, NULL, 0))
     {
         unsigned len, pos, str;
-        unsigned char *mem=NULL;
+        unsigned char *mem = NULL;
 
         sysLv2FsLSeek64(fd, 0, 2, &position);
         len = (u32) position;
 
-        mem= (unsigned char *) malloc(len+16);
-        if(!mem) {
-            sysLv2FsClose(fd);
-            return -2;
-        }
+        if(len > 0x4000) {sysLv2FsClose(fd); return -2;}
 
-        memset(mem, 0, len+16);
+        mem = (unsigned char *) malloc(len + 16);
+        if(!mem) {sysLv2FsClose(fd); return -2;}
+
+        memset(mem, 0, len + 16);
 
         sysLv2FsLSeek64(fd, 0, 0, &position);
-        
-        if(sysLv2FsRead(fd, mem, len, &bytes)!=0)
-            bytes =0LL;
+
+        if(sysLv2FsRead(fd, mem, len, &bytes)!=0) bytes = 0LL;
 
         len = (u32) bytes;
 
-        sysLv2FsClose(fd); 
+        sysLv2FsClose(fd);
 
-        str= (mem[8]+(mem[9]<<8));
-        pos=(mem[0xc]+(mem[0xd]<<8));
+        str = (mem[8] + (mem[9]<<8));
+        pos = (mem[0xc] + (mem[0xd]<<8));
 
-        int indx=0;
-        int ct=0;
+        int indx = 0;
+        int ct = 0;
 
-        while(str<len)
+        while(str < len)
         {
-            if(mem[str]==0)
-                break;
-            
-            if(!strcmp((char *) &mem[str], "TITLE"))
+            if(mem[str] == 0) break;
+
+            if(!strncmp((char *) &mem[str], "TITLE", 6))
             {
                 strncpy(title_name, (char *) &mem[pos], 63);
                 title_name[63] = 0;
                 ct++;
             }
-            else if(!strcmp((char *) &mem[str], "CATEGORY")) {
-                strncpy(title_name, (char *) &mem[pos], 63);
-                title_name[63] = 0;
-                ct++;
+            else if(!strncmp((char *) &mem[str], "CATEGORY", 8))
+            {
                 memcpy((char *) game_category, (char *) &mem[pos], 2);
+                game_category[2] = 0;
+                ct++;
             }
-            if(ct==2) {
+
+            if(ct >= 2)
+            {
                 free(mem);
-                return 0;
+                return SUCCESS;
             }
-            while(mem[str])
-                str++;
-            str++;
-            pos+=(mem[0x1c+indx]+(mem[0x1d+indx]<<8));
-            indx+=16;
+
+            while(mem[str] && str < len) str++; str++;
+            pos  += (mem[0x1c + indx] + (mem[0x1d + indx]<<8));
+            indx += 16;
         }
 
-        if(mem)
-            free(mem);
+        if(mem) free(mem);
     }
 
-    return -1;
-
+    return FAILED;
 }
 
-int mem_parse_param_sfo(u8 *mem, u32 len, char *title_name)
+int mem_parse_param_sfo(u8 *mem, u32 len, char *field, char *value)
 {
     u32 pos, str;
 
     if(mem[0] !=0 || mem[1] != 0x50 || mem[2] != 0x53 || mem[3] != 0x46) return -1; // unknown file!
 
-    str= (mem[8]+(mem[9]<<8));
-    pos=(mem[0xc]+(mem[0xd]<<8));
+    str = (mem[8] + (mem[9]<<8));
+    pos = (mem[0xc] + (mem[0xd]<<8));
 
-    int indx=0;
+    int indx = 0;
 
-    while(str<len)
+    while(str < len)
     {
-        if(mem[str]==0)
-            break;
-        
-        if(!strcmp((char *) &mem[str], "TITLE"))
+        if(mem[str] == 0) break;
+
+        if(!strcmp((char *) &mem[str], field))
         {
-            strncpy(title_name, (char *) &mem[pos], 63);
-            title_name[63] = 0;
-            return 0;
+            strncpy(value, (char *) &mem[pos], 63);
+            if(!strncmp(field, "TITLE_ID", 8) && value[4] != 0x2D)
+            {
+                sprintf(value, "%c%c%c%c-%c%c%c%c%c", value[0], value[1], value[2], value[3],
+                                                      value[4], value[5], value[6], value[7], value[8]);
+            }
+            value[63] = 0;
+            return SUCCESS;
         }
-        
-        while(mem[str])
-            str++;
-        str++;
-        pos+=(mem[0x1c+indx]+(mem[0x1d+indx]<<8));
-        indx+=16;
+
+        while(mem[str] && str < len) str++; str++;
+        pos  += (mem[0x1c+indx] + (mem[0x1d+indx]<<8));
+        indx += 16;
     }
 
-    return -1;
+    return FAILED;
 
 }
 
+int parse_iso_titleid(char * path_iso, char * title_id)
+{
+    if(get_filesize(path_iso) < 0x9320LL) return -2;
+
+    Lv2FsFile fd;
+    u64 bytes;
+    u64 position = 0LL;
+
+    unsigned char *mem = NULL;
+
+    int n, flag;
+
+    flag = FAILED;
+
+    unsigned pos, len = (u32) 0x6000;
+
+    bool is_ntfs = is_ntfs_path(path_iso);
+
+    if(is_ntfs)
+    {
+        int fd = ps3ntfs_open(path_iso, O_RDONLY, 0777);
+        if(fd >= SUCCESS)
+        {
+            if(ps3ntfs_seek64(fd, 0x9320LL, SEEK_SET) != 0x9320LL) {ps3ntfs_close(fd); return -2;}
+
+            mem = (unsigned char *) malloc(len + 16);
+            if(!mem) {ps3ntfs_close(fd); return -2;}
+            memset(mem, 0, len + 16);
+
+            bytes = ps3ntfs_read(fd, (void *) mem, len);
+
+            ps3ntfs_close(fd);
+        }
+    }
+    else
+    {
+        sysLv2FsChmod(path_iso, FS_S_IFMT | 0777);
+        n = sysLv2FsOpen(path_iso, 0, &fd, S_IREAD | S_IRGRP | S_IROTH, NULL, 0);
+
+        if(!n)
+        {
+            sysLv2FsLSeek64(fd, 0x9320LL, 0, &position);
+            if(position != 0x9320LL) {sysLv2FsClose(fd); return -2;}
+
+            mem = (unsigned char *) malloc(len + 16);
+            if(!mem) {sysLv2FsClose(fd); return -2;}
+            memset(mem, 0, len + 16);
+
+            if(sysLv2FsRead(fd, mem, len, &bytes) != 0) bytes = 0LL;
+
+            len = (u32) bytes;
+
+            sysLv2FsClose(fd);
+        }
+    }
+
+
+    pos = 0;
+    if(bytes > 11) len = (u32) bytes - 11; else len = 0;
+
+    while(pos < len)
+    {
+        if(mem[pos] == 'S' && mem[pos + 8] == '.')
+        {
+            if(!strncmp((char *) &mem[pos], "SLUS_", 5))
+            {
+                memcpy(title_id, (char *) &mem[pos], 11);
+                flag = SUCCESS;
+                pos = len;
+            }
+            else if(!strncmp((char *) &mem[pos], "SCUS_", 5))
+            {
+                memcpy(title_id, (char *) &mem[pos], 11);
+                flag = SUCCESS;
+                pos = len;
+            }
+            else if(!strncmp((char *) &mem[pos], "SLES_", 5))
+            {
+                memcpy(title_id, (char *) &mem[pos], 11);
+                flag = SUCCESS;
+                pos = len;
+            }
+            else if(!strncmp((char *) &mem[pos], "SCES_", 5))
+            {
+                memcpy(title_id, (char *) &mem[pos], 11);
+                flag = SUCCESS;
+                pos = len;
+            }
+            else if(!strncmp((char *) &mem[pos], "SLPM_", 5))
+            {
+                memcpy(title_id, (char *) &mem[pos], 11);
+                flag = SUCCESS;
+                pos = len;
+            }
+            else if(!strncmp((char *) &mem[pos], "SLPS_", 5))
+            {
+                memcpy(title_id, (char *) &mem[pos], 11);
+                flag = SUCCESS;
+                pos = len;
+            }
+            else if(!strncmp((char *) &mem[pos], "SCPM_", 5))
+            {
+                memcpy(title_id, (char *) &mem[pos], 11);
+                flag = SUCCESS;
+                pos = len;
+            }
+            else if(!strncmp((char *) &mem[pos], "SCPS_", 5))
+            {
+                memcpy(title_id, (char *) &mem[pos], 11);
+                flag = SUCCESS;
+                pos = len;
+            }
+            else if(!strncmp((char *) &mem[pos], "SIPS_", 5))
+            {
+                memcpy(title_id, (char *) &mem[pos], 11);
+                flag = SUCCESS;
+                pos = len;
+            }
+            else if(!strncmp((char *) &mem[pos], "SCPS_", 5))
+            {
+                memcpy(title_id, (char *) &mem[pos], 11);
+                flag = SUCCESS;
+                pos = len;
+            }
+            else if(!strncmp((char *) &mem[pos], "SLUD_", 5))
+            {
+                memcpy(title_id, (char *) &mem[pos], 11);
+                flag = SUCCESS;
+                pos = len;
+            }
+            else if(!strncmp((char *) &mem[pos], "SCUD_", 5))
+            {
+                memcpy(title_id, (char *) &mem[pos], 11);
+                flag = SUCCESS;
+                pos = len;
+            }
+            else if(!strncmp((char *) &mem[pos], "SLED_", 5))
+            {
+                memcpy(title_id, (char *) &mem[pos], 11);
+                flag = SUCCESS;
+                pos = len;
+            }
+            else if(!strncmp((char *) &mem[pos], "SCED_", 5))
+            {
+                memcpy(title_id, (char *) &mem[pos], 11);
+                flag = SUCCESS;
+                pos = len;
+            }
+        }
+        else if(mem[pos] == 'P' && mem[pos + 8] == '.')
+        {
+            if(!strncmp((char *) &mem[pos], "PAPX_", 5))
+            {
+                memcpy(title_id, (char *) &mem[pos], 11);
+                flag = SUCCESS;
+                pos = len;
+            }
+            else if(!strncmp((char *) &mem[pos], "PBPX_", 5))
+            {
+                memcpy(title_id, (char *) &mem[pos], 11);
+                flag = SUCCESS;
+                pos = len;
+            }
+            else if(!strncmp((char *) &mem[pos], "PCPX_", 5))
+            {
+                memcpy(title_id, (char *) &mem[pos], 11);
+                flag = SUCCESS;
+                pos = len;
+            }
+        }
+        else if(mem[pos] == 'N' && mem[pos + 1] == 'P')
+        {
+            if(!strncmp((char *) &mem[pos], "NPUZ", 4))
+            {
+                memcpy(title_id, (char *) &mem[pos], 10);
+                flag = SUCCESS;
+                pos = len;
+            }
+            else if(!strncmp((char *) &mem[pos], "NPEZ", 4))
+            {
+                memcpy(title_id, (char *) &mem[pos], 10);
+                flag = SUCCESS;
+                pos = len;
+            }
+            else if(!strncmp((char *) &mem[pos], "NPUH", 4))
+            {
+                memcpy(title_id, (char *) &mem[pos], 10);
+                flag = SUCCESS;
+                pos = len;
+            }
+            else if(!strncmp((char *) &mem[pos], "NPEH", 4))
+            {
+                memcpy(title_id, (char *) &mem[pos], 10);
+                flag = SUCCESS;
+                pos = len;
+            }
+            else if(!strncmp((char *) &mem[pos], "NPJH", 4))
+            {
+                memcpy(title_id, (char *) &mem[pos], 10);
+                flag = SUCCESS;
+                pos = len;
+            }
+            else if(!strncmp((char *) &mem[pos], "NPUG", 4))
+            {
+                memcpy(title_id, (char *) &mem[pos], 10);
+                flag = SUCCESS;
+                pos = len;
+            }
+            else if(!strncmp((char *) &mem[pos], "NPEG", 4))
+            {
+                memcpy(title_id, (char *) &mem[pos], 10);
+                flag = SUCCESS;
+                pos = len;
+            }
+            else if(!strncmp((char *) &mem[pos], "NPJG", 4))
+            {
+                memcpy(title_id, (char *) &mem[pos], 10);
+                flag = SUCCESS;
+                pos = len;
+            }
+        }
+        else if(mem[pos] == 'U')
+        {
+            if(!strncmp((char *) &mem[pos], "ULUS", 4))
+            {
+                memcpy(title_id, (char *) &mem[pos], 10);
+                flag = SUCCESS;
+                pos = len;
+            }
+            else if(!strncmp((char *) &mem[pos], "ULES", 4))
+            {
+                memcpy(title_id, (char *) &mem[pos], 10);
+                flag = SUCCESS;
+                pos = len;
+            }
+            else if(!strncmp((char *) &mem[pos], "ULJS", 4))
+            {
+                memcpy(title_id, (char *) &mem[pos], 10);
+                flag = SUCCESS;
+                pos = len;
+            }
+            else if(!strncmp((char *) &mem[pos], "ULAS", 4))
+            {
+                memcpy(title_id, (char *) &mem[pos], 10);
+                flag = SUCCESS;
+                pos = len;
+            }
+            else if(!strncmp((char *) &mem[pos], "UCJM", 4))
+            {
+                memcpy(title_id, (char *) &mem[pos], 10);
+                flag = SUCCESS;
+                pos = len;
+            }
+            else if(!strncmp((char *) &mem[pos], "UCUS", 4))
+            {
+                memcpy(title_id, (char *) &mem[pos], 10);
+                flag = SUCCESS;
+                pos = len;
+            }
+            else if(!strncmp((char *) &mem[pos], "UCES", 4))
+            {
+                memcpy(title_id, (char *) &mem[pos], 10);
+                flag = SUCCESS;
+                pos = len;
+            }
+            else if(!strncmp((char *) &mem[pos], "UCJS", 4))
+            {
+                memcpy(title_id, (char *) &mem[pos], 10);
+                flag = SUCCESS;
+                pos = len;
+            }
+            else if(!strncmp((char *) &mem[pos], "UCAS", 4))
+            {
+                memcpy(title_id, (char *) &mem[pos], 10);
+                flag = SUCCESS;
+                pos = len;
+            }
+            else if(!strncmp((char *) &mem[pos], "UCES", 4))
+            {
+                memcpy(title_id, (char *) &mem[pos], 10);
+                flag = SUCCESS;
+                pos = len;
+            }
+            else if(!strncmp((char *) &mem[pos], "UCKS", 4))
+            {
+                memcpy(title_id, (char *) &mem[pos], 10);
+                flag = SUCCESS;
+                pos = len;
+            }
+        }
+
+        pos++;
+    }
+
+    if(mem) free(mem);
+    return flag;
+}
 
 int parse_param_sfo_id(char * file, char *title_id)
 {
-	Lv2FsFile fd;
-    u64 bytes;
-    u64 position = 0LL;
-	
-    strncpy(title_id, "UNKNOWN", 63);
+    char titleid[16];
 
-	if(!sysLv2FsOpen(file, 0, &fd, S_IRWXU | S_IRWXG | S_IRWXO, NULL, 0))
-		{
-		unsigned len, pos, str;
-		unsigned char *mem=NULL;
+    int ret = get_field_param_sfo(file, "TITLE_ID", titleid, 9);
 
-        sysLv2FsLSeek64(fd, 0, 2, &position);
-		len = (u32) position;
+    sprintf(title_id, "%c%c%c%c-%c%c%c%c%c", titleid[0], titleid[1], titleid[2], titleid[3],
+                                             titleid[4], titleid[5], titleid[6], titleid[7], titleid[8]);
 
-		mem= (unsigned char *) malloc(len+16);
-		if(!mem) {sysLv2FsClose(fd);return -2;}
+    return ret;
+}
 
-		memset(mem, 0, len+16);
-
-		sysLv2FsLSeek64(fd, 0, 0, &position);
-		
-        if(sysLv2FsRead(fd, mem, len, &bytes)!=0) bytes =0LL;
-
-        len = (u32) bytes;
-
-		sysLv2FsClose(fd); 
-
-		str= (mem[8]+(mem[9]<<8));
-		pos=(mem[0xc]+(mem[0xd]<<8));
-
-		int indx=0;
-
-		while(str<len)
-			{
-			if(mem[str]==0) break;
-			
-			if(!strcmp((char *) &mem[str], "TITLE_ID"))
-				{
-                memcpy(title_id, (char *) &mem[pos], 4);
-                title_id[4] = '-';
-				strncpy(&title_id[5], (char *) &mem[pos + 4], 58);
-                title_id[63] = 0;
-				free(mem);
-				return 0;
-				}
-			while(mem[str]) str++;str++;
-			pos+=(mem[0x1c+indx]+(mem[0x1d+indx]<<8));
-			indx+=16;
-			}
-		if(mem) free(mem);
-        
-		}
-
-	
-	return -1;
-
+int parse_param_sfo_appver(char *file, char *app_ver)
+{
+    return get_field_param_sfo(file, "APP_VER", app_ver, 5);
 }
 
 int parse_ps3_disc(char *path, char * id)
 {
-	int n;
-	
-	Lv2FsFile fd;
+    if(is_ntfs_path(path) || strlen(path) <= 4) return FAILED;
+    if(strncmp(path + strlen(path) - 4, ".SFB", 4)) return FAILED;
+    if(!file_exists(path)) return FAILED;
+
+    int n;
+
+    Lv2FsFile fd;
     u64 bytes;
     u64 position = 0LL;
 
     strncpy(id, "UNKNOWN", 63);
-	
-	if(!sysLv2FsOpen(path, 0, &fd, S_IRWXU | S_IRWXG | S_IRWXO, NULL, 0))
-		{
-		unsigned len;
-		unsigned char *mem=NULL;
 
-		sysLv2FsLSeek64(fd, 0, 2, &position);
-		len = (u32) position;
+    if(!sysLv2FsOpen(path, 0, &fd, S_IREAD | S_IRGRP | S_IROTH, NULL, 0))
+    {
+        unsigned len;
+        unsigned char *mem = NULL;
 
-		mem= (unsigned char *) malloc(len+16);
-		if(!mem) {sysLv2FsClose(fd);return -2;}
+        sysLv2FsLSeek64(fd, 0, 2, &position);
+        len = (u32) position;
 
-		memset(mem, 0, len+16);
+        if(len > 0x4000) {sysLv2FsClose(fd); return -2;}
 
-		sysLv2FsLSeek64(fd, 0, 0, &position);
+        mem = (unsigned char *) malloc(len + 16);
+        if(!mem) {sysLv2FsClose(fd); return -2;}
 
-		if(sysLv2FsRead(fd, mem, len, &bytes)!=0) bytes =0LL;
+        memset(mem, 0, len + 16);
+
+        sysLv2FsLSeek64(fd, 0, 0, &position);
+
+        if(sysLv2FsRead(fd, mem, len, &bytes) != 0) bytes = 0LL;
 
         len = (u32) bytes;
 
-		sysLv2FsClose(fd);
+        sysLv2FsClose(fd);
 
-		for(n=0x20;n<0x200;n+=0x20)
-			{
-			if(!strcmp((char *) &mem[n], "TITLE_ID"))
-				{
-				n= (mem[n+0x12]<<8) | mem[n+0x13];
-				memcpy(id, &mem[n], 16);
+        for(n = 0x20; n < 0x200; n += 0x20)
+        {
+            if(!strcmp((char *) &mem[n], "TITLE_ID"))
+            {
+                n = (mem[n + 0x12]<<8) | mem[n + 0x13];
+                memcpy(id, &mem[n], 16);
 
-				return 0;
-				}
-			}
-		}
+                return SUCCESS;
+            }
+        }
+    }
 
-	return -1;
-
+    return FAILED;
 }
 
 extern int firmware;
@@ -488,53 +1365,73 @@ extern int firmware;
 
 int patch_exe_error_09(char *path_exe)
 {
-    
+    if(is_ntfs_path(path_exe)) return 0;
+
     u16 fw_421 = 42100;
-    u16 fw_490 = 49000;
-    u32 offset_fw;
+    u16 fw_480 = 48100;
+    int offset_fw;
     s32 ret;
-    u64 readed = 0;
+    u64 bytesread = 0;
     u64 written = 0;
     u64 pos = 0;
     u16 ver = 0;
     int file = -1;
-    int flag = 0;
+    int flag = 0; //not patched
 
-    //if(firmware < 0x421C || firmware >= 0x460C) return 0;
+    sysLv2FsChmod(path_exe, FS_S_IFMT | 0777);
+
+    if(firmware >= 0x481C) return SUCCESS;
 
     // open self/sprx and changes the fw version
     ret = sysLv2FsOpen( path_exe, SYS_O_RDWR, &file, 0, NULL, 0 );
-    if(ret == 0) {
+    if(ret == SUCCESS)
+    {
         // set to offset position
         ret = sysLv2FsLSeek64( file, 0xC, 0, &pos );
-        if(ret == 0 && pos == 0xCULL) {
+        if(ret == SUCCESS && pos == 0xCULL)
+        {
             // read offset in file
-            ret = sysLv2FsRead( file, &offset_fw, 0x4, &readed );
+            ret = sysLv2FsRead( file, &offset_fw, 0x4, &bytesread );
 
-            if(ret == 0 && readed == 4ULL) {
-                offset_fw+= 0x1E;
+            if(ret == SUCCESS && bytesread == 4ULL && offset_fw > 0xF)
+            {
+                u8 retried; retried = 0; offset_fw -= 0x78;
+
+                retry_offset_exe:
+
+                if(offset_fw < 0x90 || offset_fw > 0x800) offset_fw = strstr(path_exe, ".sprx") ? 0x258 : 0x428;
+                offset_fw += 6;
+
                 ret = sysLv2FsLSeek64( file, (u64) offset_fw, 0, &pos );
 
-                if(ret == 0 && pos == (u64) offset_fw) {
-                    ret = sysLv2FsRead( file, &ver, 0x2, &readed );
-                    if(ret == 0 && readed == 0x2ULL) {
+                if(ret == SUCCESS && pos == (u64) offset_fw)
+                {
+                    ret = sysLv2FsRead( file, &ver, 0x2, &bytesread ); //self/sprx min fw version
+
+                    if(retried == 0 && (ver % 100) > 0) {offset_fw = (offset_fw==0x258) ? 0x278 : 0; retried = 1; goto retry_offset_exe;}
+
+                    if(ret == SUCCESS && bytesread == 0x2ULL && (ver >= 34000 && ver <= fw_480))
+                    {
                         ret = sysLv2FsLSeek64( file, (u64) offset_fw, 0, &pos );
                         u16 cur_firm = ((firmware>>12) & 0xF) * 10000 + ((firmware>>8) & 0xF) * 1000 + ((firmware>>4) & 0xF) * 100;
-                        
-                        if(ret == 0 && firmware >= 0x421C && firmware < 0x490C && ver > fw_421 && ver <= fw_490 && ver > cur_firm) {
-                            sysLv2FsWrite( file, &cur_firm, 0x2, &written );
-                            flag = 1;
-                        } else if(ret==0 && ver > cur_firm) flag = -1; // 
+
+                        if(ret == SUCCESS && ver > cur_firm)
+                        {
+                            if(ver > fw_421 && (firmware >= 0x421C && firmware < 0x481C))
+                            {
+                                sysLv2FsWrite( file, &cur_firm, 0x2, &written );
+                                flag = 1; //patch applied
+                            }
+                            else
+                                flag = -1; //requires a higher firmware
+                        }
                     }
-
                 }
-
-
             }
         }
 
         sysLv2FsClose( file );
-    }
+   }
 
    return flag;
 }
@@ -545,126 +1442,197 @@ int patch_exe_error_09(char *path_exe)
 
 static int self_alarm_version = 0;
 
-void patch_error_09( const char *path )
+void patch_error_09( const char *path, int quick_ver_check )
 {
+
+    if(quick_ver_check)
+    {
+        char ps3_sys_ver[8] = "00.0000";
+        char sfo[MAX_PATH_LEN];
+        sprintf(sfo, "%s/PS3_GAME/PARAM.SFO", path);
+        get_field_param_sfo(sfo, "PS3_SYSTEM_VER", ps3_sys_ver, 7);
+
+        int cur_firm = ((firmware>>12) & 0xF) * 10000 + ( (firmware>>8) & 0xF) * 1000 + ( (firmware>>4) & 0xF) * 100;
+        int gam_firm = (ps3_sys_ver[1] - '0') * 10000 + (ps3_sys_ver[3] - '0') * 1000 + (ps3_sys_ver[4] - '0') * 100;
+        if(cur_firm >= gam_firm) return;
+    }
+
+
     int d = -1;
     s32 ret = 1;
 
-    if(firmware < 0x421C || firmware >= 0x490C) return;
-
     /* Open the directory specified by "path". */
-	ret = sysLv2FsOpenDir( path, &d );
-    
+    ret = sysLv2FsOpenDir( path, &d );
+
     /* Check it was opened. */
-    if( d == -1 )
-		return;
-		
-    while( 1 )
+    if( d == -1 ) return;
+
+    int ext;
+    char f[MAX_PATH_LEN];
+
+    while(true)
     {
         sysFSDirent entry;
-        const char * d_name;
         u64 read = 0;
 
         /* "Readdir" gets subsequent entries from "d". */
         ret = sysLv2FsReadDir( d, &entry, &read );
-        if ( read == 0 || ret != 0 ) 
+        if ( read == 0 || ret != SUCCESS )
         {
             /* There are no more entries in this directory, so break
                out of the while loop. */
             break;
         }
-        d_name = entry.d_name;
 
-	
-	//Trovo dove inizia l'estensione
-		int ext = entry.d_namlen - 4;
-		
         //DIRECTORY
-		if(entry.d_type & DT_DIR) {
-            if(strcmp( entry.d_name, "." ) != 0 && strcmp( entry.d_name, ".." ) != 0 
-                && strcmp( entry.d_name, "GAMES" ) != 0 && strcmp( entry.d_name, "GAMEZ" ) != 0) { //aggiungere iris, multiman, nostro manager (PS3ITA Manager), showtime, altro??
-                char path_dir[ 0x420 ];
-     
-                snprintf( path_dir, 0x420, "%s/%s", path, d_name);
-                    
-            /* Recursively call "list_dir" with the new path. */
-                patch_error_09( path_dir );
+        if(entry.d_type & DT_DIR)
+        {
+            if(strncmp( entry.d_name, ".", 1) != SUCCESS && strncmp( entry.d_name, "..", 2) != SUCCESS &&
+               strstr("GAMES|GAMEZ", entry.d_name) == NULL)
+            {
+                sprintf( f, "%s/%s", path, entry.d_name);
+
+             /* Recursively call "list_dir" with the new path. */
+                patch_error_09(f, 0);
             }
-        } else if(ext > 1 ) {
-		
-          // SELF/SPRX/EBOOT.BIN
-           
-			if( (entry.d_name[ ext ] == 's' && entry.d_name[ ext + 1 ] == 'p' && entry.d_name[ ext + 2 ] == 'r' && entry.d_name[ ext + 3 ] == 'x') 
-                || (entry.d_name[ ext ] == 'S' && entry.d_name[ ext + 1 ] == 'P' && entry.d_name[ ext + 2 ] == 'R' && entry.d_name[ ext + 3 ] == 'X')
-                || (entry.d_name[ ext ] == 's' && entry.d_name[ ext + 1 ] == 'e' && entry.d_name[ ext + 2 ] == 'l' && entry.d_name[ ext + 3 ] == 'f')
-                || (entry.d_name[ ext ] == 'S' && entry.d_name[ ext + 1 ] == 'E' && entry.d_name[ ext + 2 ] == 'L' && entry.d_name[ ext + 3 ] == 'F')
-                ||  strcmp( entry.d_name, "EBOOT.BIN" ) == 0) {
-				
-				char path_exe[0x420];
-				
-			//Azzero array
-				memset( path_exe, 0, 0x420);
-				
-			//Copio percorso e nome file in path_sprx
-				snprintf( path_exe, 0x420, "%s/%s", path, d_name );
-				
-			    if(patch_exe_error_09(path_exe) == -1) self_alarm_version = 1;
-				
-				
-			}
         }
-		
+        else
+        {
+            ext = entry.d_namlen - 4;
+
+            if(ext > 1 )
+            {
+                // SELF/SPRX/EBOOT.BIN
+                if( strcasestr("sprx|self", entry.d_name + ext) != NULL ||
+                   (strcmp(entry.d_name, "EBOOT.BIN" ) == SUCCESS))
+                {
+                    sprintf( f, "%s/%s", path, entry.d_name);
+
+                    int r = patch_exe_error_09(f);
+                    if(r == -1)
+                    {
+                        self_alarm_version = 1;
+                        DPrintf(">> %s requires a higher CFW!!!\n", entry.d_name);
+                    }
+                    else if(r == 1)
+                        DPrintf(">> %s [fixed]\n", entry.d_name);
+                    else
+                        DPrintf(">> %s\n", entry.d_name);
+                }
+            }
+        }
     }
-    
+
     /* After going through all the entries, close the directory. */
     sysLv2FsCloseDir( d );
 }
 
+int sys_shutdown()
+{
+    unlink_secure("/dev_hdd0/tmp/turnoff");
+
+    lv2syscall4(SC_SYS_POWER,SYS_SHUTDOWN,0,0,0);
+    return_to_user_prog(int);
+}
+
+int sys_reboot()
+{
+    unlink_secure("/dev_hdd0/tmp/turnoff");
+
+    //lv2syscall4(SC_SYS_POWER,SYS_HARD_REBOOT,0,0,0);
+    lv2syscall3(SC_SYS_POWER,SYS_REBOOT,0,0);
+    return_to_user_prog(int);
+}
+
+int sys_soft_reboot()
+{
+    unlink_secure("/dev_hdd0/tmp/turnoff");
+
+    lv2syscall4(SC_SYS_POWER,SYS_SOFT_REBOOT,0,0,0);
+    return_to_user_prog(int);
+}
+
 int unlink_secure(void *path)
 {
-    struct stat s2;
-    sysFSStat s;
-    int is_ntfs = 0; if(!strncmp(path, "/ntfs", 5) || !strncmp(path, "/ext", 4)) is_ntfs = 1;
+    bool is_ntfs = is_ntfs_path(path);
 
-    if(is_ntfs) {
-        if(ps3ntfs_stat(path, &s2)>=0) {
-            return ps3ntfs_unlink(path);
-        }
-        return -1;
+    if(is_ntfs)
+    {
+        return ps3ntfs_unlink(path);
     }
-    if(sysLv2FsStat(path, &s)>=0) {
+
+    sysFSStat s;
+
+    if(sysLv2FsStat(path, &s) >= 0)
+    {
         sysLv2FsChmod(path, FS_S_IFMT | 0777);
         return sysLv2FsUnlink(path);
     }
-    return -1;
+
+    return FAILED;
+}
+
+int rename_secure(void *path1, void *path2)
+{
+    bool is_ntfs = is_ntfs_path(path1);
+
+    if(is_ntfs)
+    {
+        return ps3ntfs_rename(path1, path2);
+    }
+
+    sysFSStat s;
+
+    if(sysLv2FsStat(path1, &s) >= 0)
+    {
+        return sysLv2FsRename(path1, path2);
+    }
+
+    return FAILED;
 }
 
 int mkdir_secure(void *path)
 {
-    int ret = -1;
-    DIR  *dir = opendir (path);
-    if(!dir) {
-        ret= mkdir(path, S_IRWXO | S_IRWXU | S_IRWXG | S_IFDIR);
-    } else closedir(dir);
+    int ret = FAILED;
+
+    bool is_ntfs = is_ntfs_path(path);
+
+    if(is_ntfs)
+    {
+        ret = ps3ntfs_mkdir(path, 0777);
+    }
+    else
+    {
+        DIR  *dir = opendir(path);
+        if(!dir)
+        {
+            ret = mkdir(path, S_IRWXO | S_IRWXU | S_IRWXG | S_IFDIR);
+        }
+        else
+            closedir(dir);
+    }
 
     return ret;
 }
 
 int rmdir_secure(void *path)
 {
-    int ret = -1;
-    DIR  *dir = opendir (path);
-    if(dir) {
+    int ret = FAILED;
+
+    bool is_ntfs = is_ntfs_path(path);
+
+    if(is_ntfs)
+    {
+        return ps3ntfs_unlink((char*)path);
+    }
+
+    DIR  *dir = opendir(path);
+    if(dir)
+    {
         closedir(dir);
 
-        int is_ntfs = 0; if(!strncmp(path, "/ntfs", 5) || !strncmp(path, "/ext", 4)) is_ntfs = 1;
-
-        if(is_ntfs) {
-            return ps3ntfs_unlink(path);
-        }
-
         sysFsChmod(path, FS_S_IFDIR | 0777);
-        ret= sysLv2FsRmdir(path);
+        ret = sysLv2FsRmdir(path);
     }
 
     return ret;
@@ -676,314 +1644,805 @@ u8 *ch= (u8 *) utf8;
 
     *utf8_trunc = 0;
 
-	while(*ch!=0 && len>0){
+    while(*ch != 0 && len > 0)
+    {
+        // 3, 4 bytes utf-8 code
+        if(((*ch & 0xF1) == 0xF0 || (*ch & 0xF0) == 0xe0) && (*(ch+1) & 0xc0) == 0x80)
+        {
+            //*utf8_trunc++=' '; // ignore
+            memcpy(utf8_trunc, &ch, 3+1*((*ch & 0xF1) == 0xF0));
+            utf8_trunc+= 3+1*((*ch & 0xF1) == 0xF0);
+            len--;
+            ch += 2 + 1 * ((*ch & 0xF1) == 0xF0);
+        }
+        else if((*ch & 0xE0) == 0xc0 && (*(ch+1) & 0xc0) == 0x80) // 2 bytes utf-8 code
+        {
+            memcpy(utf8_trunc, &ch, 2);
+            utf8_trunc+=2;
+            len--;
+            ch++;
+        }
+        else
+        {
+            if(*ch<32) *ch=32;
+            *utf8_trunc++=*ch;
 
-	// 3, 4 bytes utf-8 code 
-	if(((*ch & 0xF1)==0xF0 || (*ch & 0xF0)==0xe0) && (*(ch+1) & 0xc0)==0x80){
+            len--;
+        }
 
-	//*utf8_trunc++=' '; // ignore
-    memcpy(utf8_trunc, &ch, 3+1*((*ch & 0xF1)==0xF0));
-    utf8_trunc+= 3+1*((*ch & 0xF1)==0xF0);
-	len--;
-	ch+=2+1*((*ch & 0xF1)==0xF0);
-	
-	}
-	else 
-	// 2 bytes utf-8 code	
-	if((*ch & 0xE0)==0xc0 && (*(ch+1) & 0xc0)==0x80){
-	
-	memcpy(utf8_trunc, &ch, 2);
-    utf8_trunc+=2;
-	len--;
-	ch++;
-	
-	}
-	else {
-	
-	if(*ch<32) *ch=32;
-	*utf8_trunc++=*ch;
-	
-	len--;
+        ch++;
+    }
 
-	}
-
-	ch++;
-	}
-	while(len>0) {
-	*utf8_trunc++=0;
-	len--;
-	}
+    while(len > 0)
+    {
+        *utf8_trunc++=0;
+        len--;
+    }
 }
 void utf8_to_ansi(char *utf8, char *ansi, int len)
 {
-u8 *ch= (u8 *) utf8;
-u8 c;
+    u8 *ch= (u8 *) utf8;
+    u8 c;
 
     *ansi = 0;
 
-	while(*ch!=0 && len>0){
+    while(*ch != 0 && len > 0)
+    {
+        // 3, 4 bytes utf-8 code
+        if(((*ch & 0xF1) == 0xF0 || (*ch & 0xF0) == 0xe0) && (*(ch+1) & 0xc0) == 0x80)
+        {
+            *ansi++=' '; // ignore
+            len--;
+            ch+=2+1*((*ch & 0xF1) == 0xF0);
+        }
+        else
+        // 2 bytes utf-8 code
+        if((*ch & 0xE0) == 0xc0 && (*(ch+1) & 0xc0) == 0x80)
+        {
+            c = (((*ch & 3)<<6) | (*(ch+1) & 63));
 
-	// 3, 4 bytes utf-8 code 
-	if(((*ch & 0xF1)==0xF0 || (*ch & 0xF0)==0xe0) && (*(ch+1) & 0xc0)==0x80){
+            if(c >= 0xC0 && c <= 0xC5) c='A';
+            else if(c == 0xc7) c='C';
+            else if(c >= 0xc8 && c <= 0xcb) c='E';
+            else if(c >= 0xcc && c <= 0xcf) c='I';
+            else if(c == 0xd1) c='N';
+            else if(c >= 0xd2 && c <= 0xd6) c='O';
+            else if(c >= 0xd9 && c <= 0xdc) c='U';
+            else if(c == 0xdd) c='Y';
+            else if(c >= 0xe0 && c <= 0xe5) c='a';
+            else if(c == 0xe7) c='c';
+            else if(c >= 0xe8 && c <= 0xeb) c='e';
+            else if(c >= 0xec && c <= 0xef) c='i';
+            else if(c == 0xf1) c='n';
+            else if(c >= 0xf2 && c <= 0xf6) c='o';
+            else if(c >= 0xf9 && c <= 0xfc) c='u';
+            else if(c == 0xfd || c == 0xff) c='y';
+            else if(c>127) c=*(++ch+1); //' ';
 
-	*ansi++=' '; // ignore
-	len--;
-	ch+=2+1*((*ch & 0xF1)==0xF0);
-	
-	}
-	else 
-	// 2 bytes utf-8 code	
-	if((*ch & 0xE0)==0xc0 && (*(ch+1) & 0xc0)==0x80){
-	
-	c= (((*ch & 3)<<6) | (*(ch+1) & 63));
+            *ansi++=c;
+            len--;
+            ch++;
+        }
+        else
+        {
+            if(*ch<32) *ch=32;
+            *ansi++=*ch;
 
-	if(c>=0xC0 && c<=0xC5) c='A';
-	else if(c==0xc7) c='C';
-	else if(c>=0xc8 && c<=0xcb) c='E';
-	else if(c>=0xcc && c<=0xcf) c='I';
-	else if(c==0xd1) c='N';
-	else if(c>=0xd2 && c<=0xd6) c='O';
-	else if(c>=0xd9 && c<=0xdc) c='U';
-	else if(c==0xdd) c='Y';
-	else if(c>=0xe0 && c<=0xe5) c='a';
-	else if(c==0xe7) c='c';
-	else if(c>=0xe8 && c<=0xeb) c='e';
-	else if(c>=0xec && c<=0xef) c='i';
-	else if(c==0xf1) c='n';
-	else if(c>=0xf2 && c<=0xf6) c='o';
-	else if(c>=0xf9 && c<=0xfc) c='u';
-	else if(c==0xfd || c==0xff) c='y';
-	else if(c>127) c=*(++ch+1); //' ';
+            len--;
+        }
 
-	*ansi++=c;
-	len--;
-	ch++;
-	
-	}
-	else {
-	
-	if(*ch<32) *ch=32;
-	*ansi++=*ch;
-	
-	len--;
+        ch++;
+    }
 
-	}
-
-	ch++;
-	}
-	while(len>0) {
-	*ansi++=0;
-	len--;
-	}
+    while(len > 0)
+    {
+        *ansi++=0;
+        len--;
+    }
 }
 
 void sort_entries(t_directories *list, int *max)
 {
-	int n,m;
-	int fi= (*max);
+    int n,m;
+    int fi = (*max);
 
-	for(n=0; n< (fi -1);n++)
-		for(m=n+1; m< fi ;m++)
-			{
-			if((strcasecmp(list[n].title, list[m].title)>0  && ((list[n].flags | list[m].flags) & D_FLAG_BDVD)==0) || 
-				((list[m].flags & D_FLAG_BDVD) && n==0)) {
-				    t_directories swap;
-					swap = list[n]; list[n] = list[m]; list[m] =swap;
-				}
-			}
+    for(n = 0; n < (fi - 1); n++)
+        for(m = n + 1; m < fi; m++)
+        {
+            if((strcasecmp(list[n].title, list[m].title) > 0  && ((list[n].flags | list[m].flags) & D_FLAG_BDVD) == 0) ||
+              ((list[m].flags & D_FLAG_BDVD) && n == 0))
+            {
+                    t_directories swap;
+                    swap = list[n]; list[n] = list[m]; list[m] = swap;
+            }
+        }
 }
 
 void sort_entries2(t_directories *list, int *max, u32 mode)
 {
-	int n,m;
-	int fi= (*max);
+    int n, m;
+    int fi = (*max);
 
     if(mode > 2) mode = 0;
-    if(mode_homebrew != GAMEBASE_MODE) {
-        
-        for(n=0; n< (fi -1);n++)
-		for(m=n+1; m< fi ;m++)
-			{
-   
-			if((((list[n].flags & D_FLAG_HOMEB_MKV) != 0) && (list[m].flags & D_FLAG_HOMEB_MKV)==0) ||
-                 (((list[n].flags & D_FLAG_HOMEB_MKV)!=0)  == ((list[m].flags & D_FLAG_HOMEB_MKV)!=0) && strcasecmp(list[n].title, list[m].title)>0)) {
-				    t_directories swap;
-					swap = list[n]; list[n] = list[m]; list[m] = swap;
-				}
-			}
-        
+
+    if(mode_homebrew != GAMEBASE_MODE)
+    {
+        for(n = 0; n < (fi - 1); n++)
+            for(m = n + 1; m < fi ;m++)
+            {
+                if( (((list[n].flags & D_FLAG_HOMEB_MKV) != 0) &&  (list[m].flags & D_FLAG_HOMEB_MKV) == 0) ||
+                    (((list[n].flags & D_FLAG_HOMEB_MKV) != 0) == ((list[m].flags & D_FLAG_HOMEB_MKV) != 0) && strcasecmp(list[n].title, list[m].title) > 0) )
+                {
+                        t_directories swap;
+                        swap = list[n]; list[n] = list[m]; list[m] = swap;
+                }
+            }
+
         return;
     }
 
     if(mode == 0) {sort_entries(list, max); return;}
-	
 
-	for(n=0; n< (fi -1);n++)
-		for(m=n+1; m< fi ;m++)
-			{
-   
-			if((mode == 1 && (list[n].flags & D_FLAG_PSX_ISO) != (list[m].flags & D_FLAG_PSX_ISO) && (list[n].flags & D_FLAG_PSX_ISO)!=0) ||
-               (mode == 2 && (list[n].flags & D_FLAG_PSX_ISO) != (list[m].flags & D_FLAG_PSX_ISO) && (list[n].flags & D_FLAG_PSX_ISO)==0) ||
-                (mode && (list[n].flags & D_FLAG_PSX_ISO) == (list[m].flags & D_FLAG_PSX_ISO) && strcasecmp(list[n].title, list[m].title)>0  && ((list[n].flags | list[m].flags) & D_FLAG_BDVD)==0)
-                || ((list[m].flags & D_FLAG_BDVD) && n==0)) {
-				    t_directories swap;
-					swap = list[n]; list[n] = list[m]; list[m] = swap;
-				}
-			}
+    for(n = 0; n < (fi - 1); n++)
+        for(m = n + 1; m < fi; m++)
+        {
+            if((mode == 1 && (list[n].flags & (PS1_FLAG)) != (list[m].flags & (PS1_FLAG)) && (list[n].flags & (PS1_FLAG)) != 0) ||
+               (mode == 2 && (list[n].flags & (PS1_FLAG)) != (list[m].flags & (PS1_FLAG)) && (list[n].flags & (PS1_FLAG)) == 0) ||
+               (mode      && (list[n].flags & (PS1_FLAG)) == (list[m].flags & (PS1_FLAG)) && strcasecmp(list[n].title, list[m].title) > 0 &&
+                                                                                         ((list[n].flags | list[m].flags) & D_FLAG_BDVD) == 0) ||
+               ((list[m].flags & D_FLAG_BDVD) && n == 0))
+            {
+                    t_directories swap;
+                    swap = list[n]; list[n] = list[m]; list[m] = swap;
+            }
+        }
 }
 
-int delete_entries(t_directories *list, int *max, u32 flag)
+bool icon_exists(char *title_id, t_directories *list, int max)
 {
-    int n;
-    int deleted = 0;
+    int i;
 
-    n=0;
-    flag &= GAMELIST_FILTER; // filter entries
-    while(n<(*max) )
+    for(i = 0; i < max; i++)
     {
-        if(list[n].flags & flag)
+        if(strncmp(list[i].title_id, title_id, 9) == SUCCESS) break;
+    }
+
+    return (i < max);
+}
+
+bool add_homebrew_icon(t_directories *list, int *max, char *title_id, char *spath)
+{
+    if(icon_exists(title_id, list, (*max)) == false)
+    {
+        char filepath[MAXPATHLEN];
+        char title_name[64] = {};
+
+        if(strncmp(spath, "/dev_", 5) == SUCCESS)
+            strcpy(filepath, spath);
+        else if(strncmp(title_id, "BLES80616", 9) == SUCCESS)
+        {
+            sprintf(filepath, "%s/USRDIR/prepNTFS.self", self_path);
+            sprintf(title_name, "Prepare NTFS Drives for webMAN");
+        }
+        else if(strncmp(title_id, "PRXLOADER", 9) == SUCCESS)
+        {
+            sprintf(filepath, "%s/USRDIR/prxloader.self", self_path);
+            sprintf(title_name, "PRX Loader");
+        }
+        else if(strncmp(title_id, "CDGPLAYER", 9) == SUCCESS)
+        {
+            sprintf(filepath, "%s/USRDIR/CDGPlayer.self", self_path);
+            sprintf(title_name, "CDG Player");
+        }
+        else if(strncmp(title_id, "GMPADTEST", 9) == SUCCESS)
+        {
+            sprintf(filepath, "%s/USRDIR/Testpad.self", self_path);
+            sprintf(title_name, "GamePad Test");
+        }
+        else
+            sprintf(filepath, "/dev_hdd0/game/%s/USRDIR/%s", title_id, spath);
+
+        if(file_exists(filepath) && ndirectories < MAX_DIRECTORIES)
+        {
+            int ret = SUCCESS;
+
+            if(title_name[0] == 0)
+            {
+                char paramsfo[MAXPATHLEN];
+                sprintf(paramsfo, "/dev_hdd0/game/%s/PARAM.SFO", title_id);
+                ret = parse_param_sfo(paramsfo, title_name);
+            }
+
+            if(ret == SUCCESS)
+            {
+                list[*max].flags = HOMEBREW_FLAG;
+                list[*max].splitted = 0;
+
+                sprintf(list[*max].title_id, title_id);
+                sprintf(list[*max].path_name, filepath);
+
+                sprintf(list[*max].title, title_name);
+                if(list[*max].title[0]) (*max) ++;
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+void add_custom_icons(t_directories *list, int *max)
+{
+    char stself[MAXPATHLEN];
+
+    //-- add Internet Browser icon
+    if(mode_homebrew == HOMEBREW_MODE || game_list_category == GAME_LIST_ALL)
+    {
+        sprintf(stself, "%s/USRDIR/browser.self", self_path);
+        if(add_homebrew_icon(list, max, "NETBROWSE", stself)) sprintf(list[*max].title, "Internet Browser");
+    }
+
+    //-- add Showtime icon
+    if(mode_homebrew == VIDEOS_MODE || mode_homebrew == HOMEBREW_MODE || game_list_category == GAME_LIST_ALL)
+    {
+        sprintf(stself, "%s/USRDIR/SHOWTIME.SELF", self_path);
+        if(file_exists(stself))
+            add_homebrew_icon(list, max, "HTSS00003", stself); // Showtime
+        else
+            add_homebrew_icon(list, max, "HTSS00003", "showtime.self");
+
+    }
+
+    if(mode_homebrew == HOMEBREW_MODE)
+    {
+        char title_id[10];
+
+        int custom_homebrews_len = strlen(custom_homebrews);
+
+        for(int i = 0; i < custom_homebrews_len; i+=10)
+        {
+            strncpy(title_id, custom_homebrews + i, 9);
+
+            if(strncmp(title_id, "BLES80608", 9) == SUCCESS)
+            {
+                if(!use_mamba) add_homebrew_icon(list, max, title_id, "RELOAD.SELF"); // multiMAN
+            }
+            else if(strncmp(title_id, "BLES80616", 9) == SUCCESS)
+                add_homebrew_icon(list, max, title_id, "prepNTFS.self");
+            else if(strncmp(title_id, "SSNE10000", 9) == SUCCESS)
+                add_homebrew_icon(list, max, title_id, "cores/snes9x_next_libretro_ps3.SELF"); // RetroArch
+            else if(strncmp(title_id, "IRISMAN00", 9) == SUCCESS) ;
+            else if(strncmp(title_id, "IMANAGER4", 9) == SUCCESS)
+                add_homebrew_icon(list, max, title_id, "iris_manager.self"); // Iris Manager
+            else if(strncmp(title_id, "MAME90000", 9) == SUCCESS)
+                add_homebrew_icon(list, max, title_id, "frontend.self");
+            else if(strncmp(title_id, "PSID81257", 9) == SUCCESS)
+                add_homebrew_icon(list, max, title_id, "ps1_emu.self");
+            else
+                add_homebrew_icon(list, max, title_id, "RELOAD.SELF"); // default RELOAD.SELF
+        }
+    }
+    //-- end of custom icons
+}
+
+int delete_custom_icons(t_directories *list, int *max)
+{
+    int n, deleted = 0;
+
+    n = 0;
+    while(n < (*max) && (*max) > 0)
+    {
+        if((list[n].title_id[0] > 0) && (strstr(custom_homebrews, list[n].title_id) != NULL))
         {
             deleted++;
 
-            if((*max) >1)
+            if((*max) > 1)
             {
-                list[n].flags = 0;
-                list[n] = list[(*max) -1];
+                list[n] = list[(*max) - 1];
+
                 (*max) --;
-            } else if((*max) == 1) {
+            }
+            else if((*max) == 1)
+            {
                 (*max) --;
+
                 break;
             }
-            
-        } else
+
+            if(deleted == 2) break;
+        }
+        else
             n++;
     }
+
+    if((*max) >= MAX_DIRECTORIES) return deleted;
+
+    list[(*max)].flags = 0;
+    list[(*max)].title[0] = 0;
+    list[(*max)].title_id[0] = 0;
+    list[(*max)].path_name[0] = 0;
+
+    for(n = (*max); n < MAX_DIRECTORIES; n++)
+        list[n] = list[(*max)];
 
     return deleted;
 }
 
-static int strcmpext(char *path, char *ext) 
+int delete_entries(t_directories *list, int *max, u32 flag)
 {
-    int pos1 = strlen(path);
-    int pos2 = strlen(ext);
+    int n, deleted = 0;
 
-    if(pos2 > pos1) return -1;
+    n = 0;
+    flag &= GAMELIST_FILTER; // filter entries
+    while(n < (*max) && (*max) > 0)
+    {
+        if((list[n].flags & flag) || (list[n].flags == flag) || list[n].path_name[0] == 0)
+        {
+            deleted++;
 
-    return strcmp(path + pos1 - pos2, ext);
+            if((*max) > 1)
+            {
+                list[n] = list[(*max) - 1];
+
+                (*max) --;
+            }
+            else if((*max) == 1)
+            {
+                (*max) --;
+
+                break;
+            }
+        }
+        else
+            n++;
+    }
+
+    if((*max) >= MAX_DIRECTORIES) return deleted;
+
+    list[(*max)].flags = 0;
+    list[(*max)].title[0] = 0;
+    list[(*max)].title_id[0] = 0;
+    list[(*max)].path_name[0] = 0;
+
+    for(n = (*max); n < MAX_DIRECTORIES; n++)
+        list[n] = list[(*max)];
+
+    return deleted;
 }
 
-void fill_iso_entries_from_device(char *path, u32 flag, t_directories *list, int *max)
+void fill_psx_iso_entries_from_device(char *path, u32 flag, t_directories *list, int *max)
 {
-    DIR  *dir;
+    if(*max >= MAX_DIRECTORIES || scan_canceled) return;
+
+    sysFSDirent dir;
+    DIR_ITER *pdir = NULL;
+    struct stat st;
+
+    bool is_ntfs = is_ntfs_path((char *) path);
+
+    if(!is_ntfs) sysFsChmod(path, FS_S_IFDIR | 0777);
+
+    pdir = ps3ntfs_diropen(path); if(!pdir) return;
+
+    while(ps3ntfs_dirnext(pdir, dir.d_name, &st) == SUCCESS)
+    {
+        if(*max >= MAX_DIRECTORIES) break;
+
+        if(ps3pad_poll()) break;
+
+        if(dir.d_name[0]=='.' && (dir.d_name[1] == 0 || dir.d_name[1] == '.')) continue;
+
+        if(!S_ISDIR(st.st_mode)) continue;
+
+        if(filter_by_letter)
+        {
+           char c1[1], c2[1]; sprintf(c1, "%c", dir.d_name[0]); sprintf(c2, "%c", (47 + filter_by_letter)); if(strcasecmp(c1, c2)) continue;
+        }
+
+        list[*max].flags = flag | PS1_FLAG;
+        list[*max].splitted = 0;
+
+        sprintf(list[*max].path_name, "%s/%s", path, dir.d_name);
+
+        dir.d_name[63]=0;
+        sprintf(list[*max].title, "%s", dir.d_name);
+        sprintf(list[*max].title_id, "%s", dir.d_name);
+
+        if(!(flag & HDD0_FLAG))
+        {
+            // is not HDD
+            char file2[MAX_PATH_LEN];
+
+            sprintf(file2, "%s/VM1/%s/Internal_MC.VM1", self_path, list[*max].title);
+            if(file_exists(file2))
+            {
+                u64 size = get_filesize(file2);
+
+                if(size > 0 && file_exists(list[*max].path_name))
+                {
+                    char file3[MAX_PATH_LEN];
+                    sprintf(file3, "%s/Internal_MC.VM1", list[*max].path_name);
+                    unlink_secure(file3);
+
+                    if(copy_async_gbl(file2, file3, size, "Copying Memory Card to USB device...", NULL) < 0)
+                    {
+                        unlink_secure(file3); // delete possible truncated file
+                        DrawDialogOK("Error copying the Memory Card to USB device");
+                    }
+                    else unlink_secure(file2);
+
+                    sprintf(file2,"%s/VM1/%s", self_path, list[*max].title);
+                    rmdir_secure(file2);
+                }
+            }
+        }
+
+        if(list[*max].title[0]) (*max) ++;
+    }
+
+    ps3ntfs_dirclose(pdir);
+}
+
+int fill_iso_entries_from_device(char *path, u32 flag, t_directories *list, int *max, unsigned long ioType)
+{
+    if(*max >= MAX_DIRECTORIES || scan_canceled) return 0;
+
     char *mem = malloc(1024);
 
-    if(!mem) return;
+    if(!mem) return 0;
 
-    dir = opendir (path);
-    if(dir) {
-        while(1) {
-        
-        struct dirent *entry=readdir (dir);
+    bool is_ps3_iso = (strstr(path, "/PS3ISO")!=NULL);
+    bool is_psx_iso = (strstr(path, "/PSXISO")!=NULL);
+    bool is_psp_iso = (strstr(path, "/PSPISO")!=NULL);
+    bool is_ps2_iso = (strstr(path, "/PS2ISO")!=NULL);
 
-        if(*max >= MAX_DIRECTORIES)
-            break;
-        
-            
-        if(!entry) break;
-        if(entry->d_name[0]=='.') continue;
+    bool is_bd_iso  = (strstr(path, "/BDISO" )!=NULL);
+    bool is_dvd_iso = (strstr(path, "/DVDISO")!=NULL);
 
-        if(entry->d_type & DT_DIR) {
+    bool is_psp = (flag & (PSP_FLAG | RETRO_FLAG)) == (PSP_FLAG | RETRO_FLAG);
+    bool is_retro = is_psp && (retro_root_path[0] > 0) && (strstr(path, retro_root_path) != NULL);
+    bool is_ps2_classic = is_psp && !is_retro &&
+                          ((ps2classic_path[0] > 0) && strstr(path, ps2classic_path) != NULL);
+
+    char wm_path[MAX_PATH_LEN];
+    bool use_wmtmp =  file_exists("/dev_hdd0/tmp/wmtmp");
+    bool use_wmtmp_ps3 = ( use_wmtmp && is_ps3_iso );
+
+    bool is_rx_video = (strcmp(path, "/dev_hdd0/game/RXMOV")==SUCCESS); if(is_rx_video) strcpy(path, "/dev_hdd0/game\0");
+
+    sysFSDirent dir;
+    DIR_ITER *pdir = NULL;
+    struct stat st;
+
+    bool is_ntfs = is_ntfs_path((char *) path);
+
+    pdir = ps3ntfs_diropen(path); if(!pdir) goto exit_function;
+
+    if(!is_ntfs) sysFsChmod(path, FS_S_IFDIR | 0777);
+
+    while(ps3ntfs_dirnext(pdir, dir.d_name, &st) == SUCCESS)
+    {
+        if(*max >= MAX_DIRECTORIES) break;
+
+        if(ps3pad_poll()) break;
+
+        if(dir.d_name[0]=='.' && (dir.d_name[1]==0 || dir.d_name[1]=='.')) continue;
+
+        if(S_ISDIR(st.st_mode))
+        {
+            if(is_retro) continue;
+            if(is_rx_video && strncmp(dir.d_name, "RXMOV", 5)!=SUCCESS) continue;
+
             int len = strlen(path);
             strcat(path,"/");
-            strcat(path, entry->d_name);
-            fill_iso_entries_from_device(path, flag, list, max);
+            strcat(path, dir.d_name);
+            fill_iso_entries_from_device(path, flag, list, max, ioType);
             path[len] = 0;
             continue;
-            
         }
 
-        if(flag & D_FLAG_HOMEB) {
-            if(strcmpext(entry->d_name, ".mkv") && strcmpext(entry->d_name, ".MKV") && strcmpext(entry->d_name, ".iso") && strcmpext(entry->d_name, ".ISO")
-                && strcmpext(entry->d_name, ".iso.0") && strcmpext(entry->d_name, ".ISO.0")) continue;
-        } else {
-            if(strcmpext(entry->d_name, ".iso") && strcmpext(entry->d_name, ".ISO")
-                && strcmpext(entry->d_name, ".iso.0") && strcmpext(entry->d_name, ".ISO.0")) continue;
+        if(is_retro)
+        {
+            if(roms_count >= max_roms) break;
+            if(!is_retro_file(path, dir.d_name)) continue;
         }
+        else if(flag & (D_FLAG_HOMEB))
+        {
+            if(is_audiovideo(get_extension(dir.d_name)) == false &&
+               strcmpext(dir.d_name, ".iso") && strcmpext(dir.d_name, ".iso.0")) continue;
+        }
+        else if(is_ps2_classic)
+        {
+            if(strcmpext(dir.d_name, ".bin.enc")) continue;
+        }
+        else if(((flag & (PS2_FLAG)) == (PS2_FLAG)) || ((flag & (PSP_FLAG)) == (PSP_FLAG)))
+        {
+            if(strcmpext(dir.d_name, ".iso") && strcmpext(dir.d_name, ".ISO")) continue;
+        }
+        else if(flag & (PS1_FLAG))
+        {
+            int flen = strlen(dir.d_name) - 4;
 
-        sprintf(list[*max ].path_name, "%s/%s", path, entry->d_name);
+            if(flen < 0 || strcasestr(".iso|.bin|.mdf|.img", dir.d_name + flen) == NULL) continue;
+        }
+        else if(strcmpext(dir.d_name, ".iso") && strcmpext(dir.d_name, ".iso.0")) continue;
 
-        char name[0x420];
+        sprintf(list[*max].path_name, "%s/%s", path, dir.d_name);
 
-        FILE *fp = fopen(list[*max ].path_name, "rb");
+        char name[MAX_PATH_LEN];
 
-        if(fp) {
-            fseek(fp, 0x810, SEEK_SET);
-            fread((void *) mem + 256, 1, 10, fp); // read PS3 disc iD
-            mem[256 + 10] = 0;
-            fseek(fp, 0x8000, SEEK_SET);
-            fread((void *) mem, 1, 256, fp);
+        if(is_ps3_iso) list[*max].flags = flag | PS3_FLAG;
+        else if(is_psx_iso || ((flag & (ISO_FLAGS)) == (PS1_FLAG))) list[*max].flags = flag | (PS1_FLAG);
+        else if(is_retro) {list[*max].flags = flag | (RETRO_FLAG); roms_count++;}
+        else if(is_ps2_classic) list[*max].flags = flag | (PS2_CLASSIC_FLAG);
+        else if(is_psp || is_psp_iso) list[*max].flags = flag | (PSP_FLAG);
+        else if(flag & (D_FLAG_HOMEB)) list[*max].flags = flag;
+        else if(is_ps2_iso) list[*max].flags = flag | PS2_FLAG;
+        else
+        {
+            int fd = ps3ntfs_open(list[*max].path_name, O_RDONLY, 0777);
+            if(fd >= SUCCESS)
+            {
+                if(ps3ntfs_seek64(fd, 0x810LL, SEEK_SET) != 0x810LL) {ps3ntfs_close(fd); continue;}
+                if(ps3ntfs_read(fd, (void *) mem + 256, 10)<10) continue;
+                mem[256 + 10] = 0;
 
-            fseek(fp, 0x9320, SEEK_SET);
+                if(ps3ntfs_seek64(fd, 0x8000LL, SEEK_SET) != 0x8000LL) {ps3ntfs_close(fd); continue;}
+                if(ps3ntfs_read(fd, (void *) mem + 256, 256)<256) continue;
 
-            fread((void *) mem + 512, 1, 256, fp);
-            fclose(fp);
+                if(ps3ntfs_seek64(fd, 0x9320LL, SEEK_SET) != 0x9320LL) {ps3ntfs_close(fd); continue;}
+                if(ps3ntfs_read(fd, (void *) mem + 512, 256)<256) continue;
 
-            if(flag & D_FLAG_HOMEB) list[*max ].flags = flag;
-            else if(!memcmp((void *) &mem[0x28], "PS3VOLUME", 9)) list[*max ].flags = flag | D_FLAG_PS3_ISO;
-            else if(!memcmp((void *) &mem[8], "PLAYSTATION", 11) || !memcmp((void *) &mem[512], "PLAYSTATION", 11)) {
-                list[*max ].flags = flag | D_FLAG_PS2_ISO;
-                if(!memcmp((void *) &mem[8], "PLAYSTATION", 11)) memcpy((void *) mem + 256, (void *) &mem[0x28], 10); 
-                else memcpy((void *) mem + 256, (void *) &mem[0x220], 10); 
-                mem[266] = 0;
+                ps3ntfs_close(fd);
+
+                if(!memcmp((void *) &mem[0x28], "PS3VOLUME", 9)) list[*max].flags = flag | PS3_FLAG;
+                else if(!memcmp((void *) &mem[8], "PLAYSTATION", 11) || !memcmp((void *) &mem[512], "PLAYSTATION", 11))
+                {
+                    list[*max].flags = flag | PS2_FLAG;
+                    if(!memcmp((void *) &mem[8], "PLAYSTATION", 11)) memcpy((void *) mem + 256, (void *) &mem[0x28], 10);
+                    else memcpy((void *) mem + 256, (void *) &mem[0x220], 10);
+                    mem[266] = 0;
+                }
+                else continue;
+
             }
             else continue;
-
-        } else continue;
-
-        strcpy(name, entry->d_name);
-
-        if(!strcmpext(name, ".mkv") || !strcmpext(name, ".MKV")) name[strlen(name) - 4] = 0;
-        else {
-            if(!strcmpext(name, ".iso.0") || !strcmpext(name, ".ISO.0")) name[strlen(name) - 6] = 0; else name[strlen(name) - 4] = 0;
         }
 
-        strncpy(list[*max ].title, name, 63);
-        list[*max ].title[63]=0;
+        strcpy(name, dir.d_name);
 
-        list[*max ].title_id[63]=0;
-        if(flag & D_FLAG_HOMEB) {
+        // remove file extension
+        if(!strcmpext(name, ".iso.0"))
+            name[strlen(name) - 6] = 0;
+        else if(is_ps2_classic && !strcmpext(name, ".bin.enc"))
+            name[strlen(name) - 8] = 0;
+        else if(strlen(name) > 5 && name[strlen(name) - 5] == '.')
+            name[strlen(name) - 5] = 0;  // .????
+        else if(strlen(name) > 3 && name[strlen(name) - 3] == '.')
+            name[strlen(name) - 3] = 0;  // .??
+        else if(strlen(name) > 4)
+            name[strlen(name) - 4] = 0;  // ISO/MKV/MP4/MP3/AVI/MPG/FLV/WMV/ASF/etc.
+
+        if(is_ps2_classic && strcmp(name, "ISO") == 0)
+        {
+            if(strstr(path, "[PS2"))
+                strcpy(name, strstr(path, "[PS2"));
+            else if(strstr(path, "PS2ISO/"))
+                strcpy(name, strstr(path, "PS2ISO/")+7);
+
+            for(u16 p = strlen(name); p > 0; p--) if(name[p]=='/') name[p]=0;
+        }
+
+        // cache ICON0 and SFO for webMAN
+        if(use_wmtmp_ps3)
+        {
+            sprintf(wm_path, "/dev_hdd0/tmp/wmtmp/%s.PNG", name);
+            if(file_exists(wm_path)==false)
+              ExtractFileFromISO(list[*max].path_name, "/PS3_GAME/ICON0.PNG;1", wm_path);
+            sprintf(wm_path, "/dev_hdd0/tmp/wmtmp/%s.SFO", name);
+            if(file_exists(wm_path)==false)
+              ExtractFileFromISO(list[*max].path_name, "/PS3_GAME/PARAM.SFO;1", wm_path);
+        }
+        else if(use_wmtmp && (is_psx_iso || is_dvd_iso || is_bd_iso))
+        {
+            sprintf(wm_path, "/dev_hdd0/tmp/wmtmp/%s.jpg", name);
+            if(file_exists(wm_path)==false)
+            {
+                char image_file[MAX_PATH_LEN];
+                sprintf(image_file, "%s/%s.jpg", path, name);
+                CopyFile(image_file, wm_path);
+                if(file_exists(wm_path)==false)
+                {
+                    sprintf(image_file, "%s/%s.JPG", path, name);
+                    CopyFile(image_file, wm_path);
+                    if(file_exists(wm_path)==false)
+                    {
+                        sprintf(wm_path, "/dev_hdd0/tmp/wmtmp/%s.PNG", name);
+                        sprintf(image_file, "%s/%s.png", path, name);
+                        CopyFile(image_file, wm_path);
+                        if(file_exists(wm_path)==false)
+                        {
+                            sprintf(image_file, "%s/%s.PNG", path, name);
+                            CopyFile(image_file, wm_path);
+                        }
+                    }
+                }
+            }
+        }
+
+        if(use_cobra && is_ntfs && (is_ps3_iso || is_psx_iso || is_dvd_iso || is_bd_iso))
+        {
+            if(is_ps3_iso) sprintf(extension, "%s", "PS3ISO");
+            if(is_psx_iso) sprintf(extension, "%s", "PSXISO");
+            if(is_dvd_iso) sprintf(extension, "%s", "DVDISO");
+            if(is_bd_iso ) sprintf(extension, "%s", "BDISO" );
+
+            sprintf(ntfs_path, "/dev_hdd0/tmp/wmtmp/%s.ntfs[%s]", name, extension);
+            if(file_exists(ntfs_path) == false)
+            {
+                snprintf(ntfs_path, MAX_PATH_LEN, "%s/%s", path, dir.d_name);
+
+                if(file_exists(ntfs_path)==false) goto cont;
+
+                parts = ps3ntfs_file_to_sectors(ntfs_path, sections, sections_size, MAX_SECTIONS, 1);
+
+                if (parts == MAX_SECTIONS)
+                {
+                    goto cont;
+                }
+                else if (parts > 0)
+                {
+                    uint8_t plugin_args[0x10000];
+
+                    num_tracks = 1;
+                    if(is_ps3_iso) emu_mode = EMU_PS3; else
+                    if(is_bd_iso ) emu_mode = EMU_BD;  else
+                    if(is_dvd_iso) emu_mode = EMU_DVD; else
+                    if(is_psx_iso)
+                    {
+                        emu_mode = EMU_PSX;
+                        cue=0;
+                        int fd;
+                        ntfs_path[strlen(ntfs_path)-3]='C'; ntfs_path[strlen(ntfs_path)-2]='U'; ntfs_path[strlen(ntfs_path)-1]='E';
+                        fd = ps3ntfs_open(ntfs_path, O_RDONLY, 0);
+                        if(fd<0)
+                        {
+                            ntfs_path[strlen(ntfs_path)-3]='c'; ntfs_path[strlen(ntfs_path)-2]='u'; ntfs_path[strlen(ntfs_path)-1]='e';
+                            fd = ps3ntfs_open(ntfs_path, O_RDONLY, 0);
+                        }
+
+                        if(fd >= 0)
+                        {
+                            int r = ps3ntfs_read(fd, (char *)cue_buf, sizeof(cue_buf));
+                            ps3ntfs_close(fd);
+
+                            if (r > 0)
+                            {
+                                char dummy[64];
+
+                                if (cobra_parse_cue(cue_buf, r, tracks, 100, &num_tracks, dummy, sizeof(dummy)-1) != 0)
+                                {
+                                    num_tracks=1;
+                                    cue=0;
+                                }
+                                else
+                                    cue=1;
+                            }
+                        }
+                    }
+
+                    p_args = (rawseciso_args *)plugin_args; memset(p_args, 0, 0x10000);
+                    p_args->device = USB_MASS_STORAGE((ioType & 0xff) - '0');
+                    p_args->emu_mode = emu_mode;
+                    p_args->num_sections = parts;
+
+                    memcpy(plugin_args+sizeof(rawseciso_args), sections, parts*sizeof(uint32_t));
+                    memcpy(plugin_args+sizeof(rawseciso_args)+(parts*sizeof(uint32_t)), sections_size, parts*sizeof(uint32_t));
+
+                    if (emu_mode == EMU_PSX)
+                    {
+                        int max = MAX_SECTIONS - ((num_tracks*sizeof(ScsiTrackDescriptor)) / 8);
+
+                        if (parts == max)
+                        {
+                            continue;
+                        }
+
+                        p_args->num_tracks = num_tracks;
+                        scsi_tracks = (ScsiTrackDescriptor *)(plugin_args+sizeof(rawseciso_args)+(2*parts*sizeof(uint32_t)));
+
+                        if (!cue)
+                        {
+                            scsi_tracks[0].adr_control = 0x14;
+                            scsi_tracks[0].track_number = 1;
+                            scsi_tracks[0].track_start_addr = 0;
+                        }
+                        else
+                        {
+                            for (u8 j = 0; j < num_tracks; j++)
+                            {
+                                scsi_tracks[j].adr_control = (tracks[j].is_audio) ? 0x10 : 0x14;
+                                scsi_tracks[j].track_number = j+1;
+                                scsi_tracks[j].track_start_addr = tracks[j].lba;
+                            }
+                        }
+                    }
+
+                    FILE *flistW;
+                    sprintf(ntfs_path, "/dev_hdd0/tmp/wmtmp/%s.ntfs[%s]", name, extension);
+                    flistW = fopen(ntfs_path, "wb");
+                    if(flistW!=NULL)
+                    {
+                        fwrite(plugin_args, sizeof(plugin_args), 1, flistW);
+                        fclose(flistW);
+                        sysFsChmod(ntfs_path, 0666);
+                    }
+                }
+            }
+        }
+cont:
+        strncpy(list[*max].title, name, 63);
+        list[*max].title[63] = 0;
+        list[*max].title_id[0] = 0;
+        list[*max].title_id[12] = 0;
+
+        if(flag & (D_FLAG_HOMEB))
+        {
             strncpy(list[*max ].title_id, name, 63); // for BD/DVD/MKV
-            //DrawDialogOK(name);
         }
-        else if(list[*max ].flags &  D_FLAG_PSX_ISO) { // PS2
-            if(mem[256]== ' ')
-                strncpy(list[*max ].title_id, name, 63);
+        else if(list[*max].flags & (PS1_FLAG))
+        {   // PS2/PS1/PSP
+            if(is_psp) goto parse_param_sfo;
+            if(is_ps2_classic) goto add_file_to_list;
+
+            parse_iso_titleid(list[*max].path_name, list[*max].title_id);
+        }
+        else
+        {
+parse_param_sfo:
+            if(is_psp)
+                strncpy(list[*max].title_id, mem + 0x373, 63);
             else
-                strncpy(list[*max ].title_id, mem + 256, 63);
-        }
-        else {
-            strncpy(list[*max ].title_id, mem + 256, 63);
+                strncpy(list[*max].title_id, mem + 256, 63);
 
-            if(strncmp(list[*max ].path_name, "/ntfs", 5) && strncmp(list[*max ].path_name, "/ext", 4))
-                sysLv2FsChmod(list[*max ].path_name, FS_S_IFMT | 0777);
+            sysLv2FsChmod(list[*max].path_name, FS_S_IFMT | 0777);
 
-            int fd = ps3ntfs_open(list[*max ].path_name, O_RDONLY, 0);
-            if(fd >= 0) {
+            list[*max].title_id[0] = 0;
+
+            int fd = ps3ntfs_open(list[*max].path_name, O_RDONLY, 0);
+            if(fd >= SUCCESS)
+            {
                 u32 flba;
                 u64 size;
                 int re;
                 char *mem = NULL;
 
-                if(!get_iso_file_pos(fd, "/PS3_GAME/PARAM.SFO;1", &flba, &size) && (mem = malloc(size + 16)) != NULL) {
+                if(is_psp)
+                    re = get_iso_file_pos(fd, "/PSP_GAME/PARAM.SFO", &flba, &size);
+                else
+                    re = get_iso_file_pos(fd, "/PS3_GAME/PARAM.SFO;1", &flba, &size);
 
+                if(!re && (mem = malloc(size + 16)) != NULL)
+                {
                     memset(mem, 0, size + 16);
 
                     re = ps3ntfs_read(fd, (void *) mem, size);
-                    
-                    if(re == size) {
-                        if(mem_parse_param_sfo((u8 *) mem, size, list[*max ].title)==0)
-                            list[*max ].title[63]=0;
 
+                    if(re == size)
+                    {
+                        if(is_psp)
+                        {
+                            if(mem_parse_param_sfo((u8 *) mem, size, "DISC_ID", list[*max].title_id) == SUCCESS) list[*max].title_id[12] = 0;
+                            if(mem_parse_param_sfo((u8 *) mem, size, "TITLE",   list[*max].title   ) == SUCCESS)
+                            {
+                                if(!strncmp(list[*max].title, "Patched & Uploaded", 18)) strncpy(list[*max].title, name, 63);
+                            }
+                        }
+                        else
+                        {
+                            if(mem_parse_param_sfo((u8 *) mem, size, "TITLE_ID", list[*max].title_id) == SUCCESS) list[*max].title_id[12] = 0;
+                            if(mem_parse_param_sfo((u8 *) mem, size, "TITLE",    list[*max].title   ) == SUCCESS) list[*max].title[63] = 0;
+                        }
                     }
                     free(mem);
                 }
@@ -991,289 +2450,458 @@ void fill_iso_entries_from_device(char *path, u32 flag, t_directories *list, int
             }
         }
 
-        list[*max ].title_id[63]=0;
+add_file_to_list:
 
-        
-        list[*max ].splitted = 0;
-
-        (*max) ++;
-        if(*max >= MAX_DIRECTORIES)
-            break;
-
+        if(filter_by_letter)
+        {
+            char c1[1], c2[1]; sprintf(c1, "%c", list[*max].title[0]); sprintf(c2, "%c", (47 + filter_by_letter)); if(strcasecmp(c1, c2)) continue;
         }
 
-        closedir (dir);
-        }
 
-   free(mem);
+        list[*max].title_id[63] = 0;
+        list[*max].splitted = 0;
+
+        if(list[*max].title[0]) (*max) ++;
+        if(*max >= MAX_DIRECTORIES) break;
+    }
+
+    ps3ntfs_dirclose(pdir);
+
+exit_function:
+
+    free(mem);
+    return (*max);
 }
 
-
-void fill_psx_iso_entries_from_device(char *path, u32 flag, t_directories *list, int *max)
+void fill_directory_entries_with_alt_path(char *file, int n, char *retro_path, char *alt_path, t_directories *list, int *max, u32 flag)
 {
+    if(scan_canceled) return;
+
+    file[n] = 0; strcat(file, retro_path);
+    fill_iso_entries_from_device(file, flag | RETRO_FLAG, list, max, 0);
+
+    if(scan_canceled) return;
+
+    if(roms_count < max_roms && ((strncmp(file, "/dev_hdd0", 9) == SUCCESS && strcmp(retro_path, alt_path) != SUCCESS) ||
+                                 (strncmp(file, "/dev_hdd0", 9) != SUCCESS && strcasecmp(retro_path, alt_path) != SUCCESS)))
+    {
+        file[n] = 0; strcat(file, alt_path);
+        fill_iso_entries_from_device(file, flag | RETRO_FLAG, list, max, 0);
+    }
+}
+
+int fill_entries_from_device(char *path, t_directories *list, int *max, u32 flag, int sel, bool append)
+{
+    if(scan_canceled) return FAILED;
+
     DIR  *dir;
+    char file[MAX_PATH_LEN];
 
-    mkdir_secure(path);
+    int n;
+    int in_progress = 0;
+    progress_action2 = 0;
+    bar1_countparts = 0.0f;
 
-    dir = opendir (path);
-    if(dir) {
-        while(1) {
-        
-        struct dirent *entry=readdir (dir);
-        
-            
-        if(!entry) break;
-        if(entry->d_name[0]=='.') continue;
+    sysUtilCheckCallback(); tiny3d_Flip();
 
-        if(!(entry->d_type & DT_DIR)) continue;
+    if (append == false) delete_entries(list, max, flag & GAMELIST_FILTER);
 
-        list[*max ].flags=flag  | D_FLAG_PSX_ISO; // PS1
+    if((*max) < 0) *max = 0;
+    if((*max) >= MAX_DIRECTORIES) return FAILED;
 
-        strncpy(list[*max ].title, entry->d_name, 63);
-        list[*max ].title[63]=0;
+    if(sel == GAMEBASE_MODE && (use_cobra || use_mamba) && /*noBDVD == MODE_DISCLESS &&*/ append == false)
+    {
+        // isos
+        strncpy(file, path, MAX_PATH_LEN);
+        n = 1; while(file[n] != '/' && file[n] != 0) n++;
 
-        strncpy(list[*max ].title_id, entry->d_name, 63);
-        list[*max ].title_id[63]=0;
+        file[n] = 0; strcat(file, "/PS3ISO\0");
 
-        sprintf(list[*max ].path_name, "%s/%s", path, entry->d_name);
-        list[*max ].splitted = 0;
+        if((game_list_category == GAME_LIST_PS3_ONLY) || (game_list_category == GAME_LIST_ALL))
+        {
+            fill_iso_entries_from_device(file, flag, list, max, 0);
 
-        if(!(flag & 1)) { // is not HDD
-            struct stat s;
-            char file2[0x420];
-            char file3[0x420];
+            file[n] = 0; strcat(file, "/PS3ISO [auto]\0");
+            fill_iso_entries_from_device(file, flag, list, max, 0);
+        }
 
-            sprintf(file2, "%s/VM1/%s/Internal_MC.VM1", self_path, list[*max ].title);
-            sprintf(file3, "%s/Internal_MC.VM1", list[*max ].path_name);
-            
-            if(stat(file2, &s)>=0) {
-                
-                unlink_secure(file3);
-                if(copy_async_gbl(file2, file3, s.st_size, "Copying Memory Card to USB device...", NULL)<0) {
-                    unlink_secure(file3); // delete possible truncated file
-                    DrawDialogOK("Error copying the Memory Card to USB device");
-                } else unlink_secure(file2);
-                
-                sprintf(file2,"%s/VM1/%s", self_path, list[*max ].title);
-                rmdir_secure(file2);
+        if((game_list_category == GAME_LIST_RETRO) || (game_list_category == GAME_LIST_ALL))
+        {
+            if((retro_mode == RETRO_ALL) || (retro_mode == RETRO_PSX) || (retro_mode == RETRO_PSALL))
+            {
+                file[n] = 0; strcat(file, "/PSXISO\0");
+                fill_iso_entries_from_device(file, flag | PS1_FLAG, list, max, 0);
+                //fill_psx_iso_entries_from_device(file, flag | PS1_FLAG, list, max);
+
+                if(scan_canceled) return FAILED;
+
+                file[n] = 0; strcat(file, "/PSXISO [auto]\0");
+                fill_iso_entries_from_device(file, flag | PS1_FLAG, list, max, 0);
+                //fill_psx_iso_entries_from_device(file, flag | PS1_FLAG, list, max);
             }
-        }
-        
-        (*max) ++;
-        if(*max >= MAX_DIRECTORIES)
-            break;
 
-        }
+            if((retro_mode == RETRO_ALL) || (retro_mode == RETRO_PS2) || (retro_mode == RETRO_PSALL))
+            {
+                file[n] = 0; strcat(file, ps2classic_path);
+                fill_iso_entries_from_device(file, flag | PS2_CLASSIC_FLAG, list, max, 0);
+            }
 
-    closedir (dir);
-    }
-}
+            if(scan_canceled) return FAILED;
 
-void fill_entries_from_device(char *path, t_directories *list, int *max, u32 flag, int sel)
-{
-    DIR  *dir;
-    char file[0x420];
-    char pattern[128];
-    
-    pattern[0] = 0;
+            if(use_cobra && !is_mamba_v2)
+            {
+                if((retro_mode == RETRO_ALL) || (retro_mode == RETRO_PS2) || (retro_mode == RETRO_PSALL))
+                {
+                    if(!strncmp(file, "/dev_hdd0", 9))
+                    {
+                        sprintf(file, "/dev_hdd0/PS2ISO");
+                        fill_iso_entries_from_device(file, flag | PS2_FLAG, list, max, 0);
 
-    if(sel == GAMEBASE_MODE)
-        strcpy(pattern, "%s/PS3_GAME/PARAM.SFO");
-    else if(sel == HOMEBREW_MODE)
-        strcpy(pattern, "%s/PARAM.SFO");
-    
-    delete_entries(list, max, flag & GAMELIST_FILTER);
+                        if(scan_canceled) return FAILED;
 
-    if((*max) <0)
-        *max =0;
+                        sprintf(file, "/dev_hdd0/PS2ISO [auto]");
+                        fill_iso_entries_from_device(file, flag | PS2_FLAG, list, max, 0);
+                    }
+                }
 
-    if(*max >= MAX_DIRECTORIES)
-                return;
+                if(scan_canceled) return FAILED;
 
-    if(sel == GAMEBASE_MODE && use_cobra && noBDVD == 2) { // isos
-        int n;
+                if((retro_mode == RETRO_ALL) || (retro_mode == RETRO_PSP) || (retro_mode == RETRO_PSALL))
+                {
+                    if(strncmp(file, "/dev_hdd0", 9) != 0)
+                    {
+                        file[n] = 0; strcat(file, "/ISO\0");
+                        fill_iso_entries_from_device(file, flag | PSP_FLAG, list, max, 0);
+                    }
 
-        strncpy(file, path, 0x420);
-        n=1;while(file[n]!='/' && file[n]!=0)  n++;
-        
-        file[n]=0; strcat(file, "/PS3ISO");
-        mkdir_secure(file);
-        if(game_list_category != 2)
-            fill_iso_entries_from_device(file, flag, list, max);
+                    if(scan_canceled) return FAILED;
 
-        file[n]=0; strcat(file, "/PS2ISO");
-        if(!strncmp(file, "/dev_hdd0", 9)) {
-            mkdir_secure(file);
-            if(game_list_category != 1)
-                fill_iso_entries_from_device(file, flag, list, max);
-        }
-    }
-
-    if(sel >= HOMEBREW_MODE && use_cobra && noBDVD == 2) { // isos BR-DVD
-        int n;
-
-        strncpy(file, path, 0x420);
-        n=1;while(file[n]!='/' && file[n]!=0)  n++;
-        
-        file[n]=0; strcat(file, "/BDISO");
-        
-        fill_iso_entries_from_device(file, D_FLAG_HOMEB | D_FLAG_HOMEB_BD | (flag  & GAMELIST_FILTER), list, max);
-
-        file[n]=0; strcat(file, "/DVDISO");
-        
-        fill_iso_entries_from_device(file, D_FLAG_HOMEB | D_FLAG_HOMEB_DVD | (flag  & GAMELIST_FILTER), list, max);
-
-        file[n]=0; strcat(file, "/MKV");
-        
-        fill_iso_entries_from_device(file, D_FLAG_HOMEB | D_FLAG_HOMEB_MKV | (flag  & GAMELIST_FILTER), list, max);
-       
-    }
-
-    // add PSX Games
-    if(sel == GAMEBASE_MODE && game_list_category != 1) {
-        int n;
-        strncpy(file, path, 0x420);
-        n=1;while(file[n]!='/' && file[n]!=0)  n++;
-        
-        file[n]=0; strcat(file, "/PSXGAMES");
-        mkdir_secure(file);
-
-        dir = opendir (file);
-        if(dir) {
-            while(1) {
-            
-            struct dirent *entry=readdir (dir);
-            
-                
-            if(!entry) break;
-            if(entry->d_name[0]=='.') continue;
-
-            if(!(entry->d_type & DT_DIR)) continue;
-
-            list[*max ].flags=flag | D_FLAG_PSX_ISO; // PS1
-
-            strncpy(list[*max ].title, entry->d_name, 63);
-            list[*max ].title[63]=0;
-
-            strncpy(list[*max ].title_id, entry->d_name, 63);
-            list[*max ].title_id[63]=0;
-
-            sprintf(list[*max ].path_name, "%s/%s", file, entry->d_name);
-            list[*max ].splitted = 0;
-
-            if(!(flag & 1)) { // is not HDD
-                struct stat s;
-                char file2[0x420];
-                char file3[0x420];
-
-                sprintf(file2, "%s/VM1/%s/Internal_MC.VM1", self_path, list[*max ].title);
-                sprintf(file3, "%s/Internal_MC.VM1", list[*max ].path_name);
-                
-                if(stat(file2, &s)>=0) {
-                    
-                    unlink_secure(file3);
-                    if(copy_async(file2, file3, s.st_size, "Copying Memory Card to USB device...", NULL)<0) {
-                        unlink_secure(file3); // delete possible truncated file
-                        DrawDialogOK("Error copying the Memory Card to USB device");
-                    } else unlink_secure(file2);
-                    
-                    sprintf(file2,"%s/VM1/%s", self_path, list[*max ].title);
-                    rmdir_secure(file2);
+                    file[n] = 0; strcat(file, "/PSPISO\0");
+                    fill_iso_entries_from_device(file, flag | PSP_FLAG, list, max, 0);
                 }
             }
-            
-            (*max) ++;
-            if(*max >= MAX_DIRECTORIES)
-                break;
 
+            if(scan_canceled) return FAILED;
+
+            //RETRO
+            char cfg_path[MAXPATHLEN];
+            sprintf(cfg_path, "%s/USRDIR/cores", self_path);
+            if(roms_count < max_roms && file_exists(cfg_path))
+            {
+                sprintf(cfg_path, "%s/USRDIR/cores/snes-retroarch.cfg", self_path);
+                if(((retro_mode == RETRO_ALL) || retro_mode == RETRO_SNES) && (roms_count < max_roms) && file_exists(cfg_path))
+                {
+                    fill_directory_entries_with_alt_path(file, n, retro_snes_path, "/ROMS/snes", list, max, flag);
+                }
+
+                sprintf(cfg_path, "%s/USRDIR/cores/gba-retroarch.cfg", self_path);
+                if(((retro_mode == RETRO_ALL) || retro_mode == RETRO_GBA) && (roms_count < max_roms) && file_exists(cfg_path))
+                {
+                    fill_directory_entries_with_alt_path(file, n, retro_gba_path, "/ROMS/vba", list, max, flag);
+                }
+
+                sprintf(cfg_path, "%s/USRDIR/cores/gen-retroarch.cfg", self_path);
+                if(((retro_mode == RETRO_ALL) || retro_mode == RETRO_GEN) && (roms_count < max_roms) && file_exists(cfg_path))
+                {
+                    fill_directory_entries_with_alt_path(file, n, retro_gen_path, "/ROMS/gen", list, max, flag);
+                }
+
+                sprintf(cfg_path, "%s/USRDIR/cores/nes-retroarch.cfg", self_path);
+                if(((retro_mode == RETRO_ALL) || retro_mode == RETRO_NES) && (roms_count < max_roms) && file_exists(cfg_path))
+                {
+                    fill_directory_entries_with_alt_path(file, n, retro_nes_path, "/ROMS/fceu", list, max, flag);
+                }
+
+                sprintf(cfg_path, "%s/USRDIR/cores/mame-retroarch.cfg", self_path);
+                if(((retro_mode == RETRO_ALL) || retro_mode == RETRO_MAME) && (roms_count < max_roms) && file_exists(cfg_path))
+                {
+                    fill_directory_entries_with_alt_path(file, n, retro_mame_path, "/ROMS/mame", list, max, flag);
+                }
+
+                sprintf(cfg_path, "%s/USRDIR/cores/fba-retroarch.cfg", self_path);
+                if(((retro_mode == RETRO_ALL) || retro_mode == RETRO_FBA) && (roms_count < max_roms) && file_exists(cfg_path))
+                {
+                    fill_directory_entries_with_alt_path(file, n, retro_fba_path, "/ROMS/fba", list, max, flag);
+                }
+
+                sprintf(cfg_path, "%s/USRDIR/cores/quake-retroarch.cfg", self_path);
+                if(((retro_mode == RETRO_ALL) || retro_mode == RETRO_QUAKE) && (roms_count < max_roms) && file_exists(cfg_path))
+                {
+                    fill_directory_entries_with_alt_path(file, n, retro_quake_path, "/ROMS/pak", list, max, flag);
+                }
+
+                sprintf(cfg_path, "%s/USRDIR/cores/doom-retroarch.cfg", self_path);
+                if(((retro_mode == RETRO_ALL) || retro_mode == RETRO_DOOM) && (roms_count < max_roms) && file_exists(cfg_path))
+                {
+                    fill_directory_entries_with_alt_path(file, n, retro_doom_path, "/ROMS/prb", list, max, flag);
+                }
+
+                sprintf(cfg_path, "%s/USRDIR/cores/pce-retroarch.cfg", self_path);
+                if(((retro_mode == RETRO_ALL) || retro_mode == RETRO_PCE) && (roms_count < max_roms) && file_exists(cfg_path))
+                {
+                    fill_directory_entries_with_alt_path(file, n, retro_pce_path, "/ROMS/pce", list, max, flag);
+                }
+
+                sprintf(cfg_path, "%s/USRDIR/cores/gbc-retroarch.cfg", self_path);
+                if(((retro_mode == RETRO_ALL) || retro_mode == RETRO_GBC) && (roms_count < max_roms) && file_exists(cfg_path))
+                {
+                    fill_directory_entries_with_alt_path(file, n, retro_gbc_path, "/ROMS/gbc", list, max, flag);
+
+                    if(roms_count < max_roms)
+                       fill_directory_entries_with_alt_path(file, n, retro_gb_path, "/ROMS/gb", list, max, flag);
+                }
+
+                sprintf(cfg_path, "%s/USRDIR/cores/atari-retroarch.cfg", self_path);
+                if(((retro_mode == RETRO_ALL) || retro_mode == RETRO_ATARI) && (roms_count < max_roms) && file_exists(cfg_path))
+                {
+                    fill_directory_entries_with_alt_path(file, n, retro_atari_path, "/ROMS/atari", list, max, flag);
+                }
+
+                sprintf(cfg_path, "%s/USRDIR/cores/vb-retroarch.cfg", self_path);
+                if(((retro_mode == RETRO_ALL) || retro_mode == RETRO_VBOY) && (roms_count < max_roms) && file_exists(cfg_path))
+                {
+                    fill_directory_entries_with_alt_path(file, n, retro_atari_path, "/ROMS/vboy", list, max, flag);
+                }
+
+                sprintf(cfg_path, "%s/USRDIR/cores/nxe-retroarch.cfg", self_path);
+                if(((retro_mode == RETRO_ALL) || retro_mode == RETRO_NXE) && (roms_count < max_roms) && file_exists(cfg_path))
+                {
+                    fill_directory_entries_with_alt_path(file, n, retro_atari_path, "/ROMS/nxe", list, max, flag);
+                }
+
+                sprintf(cfg_path, "%s/USRDIR/cores/wswan-retroarch.cfg", self_path);
+                if(((retro_mode == RETRO_ALL) || retro_mode == RETRO_WSWAN) && (roms_count < max_roms) && file_exists(cfg_path))
+                {
+                    fill_directory_entries_with_alt_path(file, n, retro_wswan_path, "/ROMS/wsw", list, max, flag);
+                }
+
+                sprintf(cfg_path, "%s/USRDIR/cores/a7800-retroarch.cfg", self_path);
+                if(((retro_mode == RETRO_ALL) || retro_mode == RETRO_A7800) && (roms_count < max_roms) && file_exists(cfg_path))
+                {
+                    fill_directory_entries_with_alt_path(file, n, retro_a7800_path, "/ROMS/a7800", list, max, flag);
+                }
+
+                sprintf(cfg_path, "%s/USRDIR/cores/lynx-retroarch.cfg", self_path);
+                if(((retro_mode == RETRO_ALL) || retro_mode == RETRO_LYNX) && (roms_count < max_roms) && file_exists(cfg_path))
+                {
+                    fill_directory_entries_with_alt_path(file, n, retro_lynx_path, "/ROMS/lynx", list, max, flag);
+                }
+
+                sprintf(cfg_path, "%s/USRDIR/cores/gw-retroarch.cfg", self_path);
+                if(((retro_mode == RETRO_ALL) || retro_mode == RETRO_GW) && (roms_count < max_roms) && file_exists(cfg_path))
+                {
+                    fill_directory_entries_with_alt_path(file, n, retro_gw_path, "/ROMS/gw", list, max, flag);
+                }
+
+                sprintf(cfg_path, "%s/USRDIR/cores/vectrex-retroarch.cfg", self_path);
+                if(((retro_mode == RETRO_ALL) || retro_mode == RETRO_VECTX) && (roms_count < max_roms) && file_exists(cfg_path))
+                {
+                    fill_directory_entries_with_alt_path(file, n, retro_vectrex_path, "/ROMS/vectrex", list, max, flag);
+                }
+
+                sprintf(cfg_path, "%s/USRDIR/cores/2048-retroarch.cfg", self_path);
+                if(((retro_mode == RETRO_ALL) || retro_mode == RETRO_2048) && (roms_count < max_roms) && file_exists(cfg_path))
+                {
+                    fill_directory_entries_with_alt_path(file, n, retro_2048_path, "/ROMS/2048", list, max, flag);
+                }
+
+                if(roms_count) roms_count = max_roms;
             }
-
-        closedir (dir);
         }
     }
 
-    if(*max >= MAX_DIRECTORIES)
-                return;
+    if(scan_canceled) return FAILED;
 
-    if(!(flag & D_FLAG_BDVD) && sel != HOMEBREW_MODE &&  game_list_category == 2) return;
-
-    if(mode_homebrew > HOMEBREW_MODE) return;
-
-    dir = opendir (path);
-    if(!dir)
-        return;
-
-    while(1)
+    if(sel >= HOMEBREW_MODE && (use_cobra || use_mamba) && /*noBDVD == MODE_DISCLESS &&*/ append == false)
     {
-        struct dirent *entry=readdir (dir);
-        
-            
+        // isos BR-DVD
+        strncpy(file, path, MAX_PATH_LEN);
+        n = 1; while(file[n] != '/' && file[n]!=0) n++;
+
+        file[n] = 0; strcat(file, "/BDISO\0");
+        fill_iso_entries_from_device(file, D_FLAG_HOMEB | D_FLAG_HOMEB_BD | (flag  & GAMELIST_FILTER), list, max, 0);
+
+        file[n] = 0; strcat(file, "/BDISO [auto]\0");
+        fill_iso_entries_from_device(file, D_FLAG_HOMEB | D_FLAG_HOMEB_BD | (flag  & GAMELIST_FILTER), list, max, 0);
+
+        file[n] = 0; strcat(file, "/DVDISO\0");
+        fill_iso_entries_from_device(file, D_FLAG_HOMEB | D_FLAG_HOMEB_DVD | (flag  & GAMELIST_FILTER), list, max, 0);
+
+        file[n] = 0; strcat(file, "/DVDISO [auto]\0");
+        fill_iso_entries_from_device(file, D_FLAG_HOMEB | D_FLAG_HOMEB_DVD | (flag  & GAMELIST_FILTER), list, max, 0);
+
+        file[n] = 0; strcat(file, "/VIDEO\0");
+        fill_iso_entries_from_device(file, D_FLAG_HOMEB | D_FLAG_HOMEB_MKV | (flag  & GAMELIST_FILTER), list, max, 0);
+
+        file[n] = 0; strcat(file, "/MOVIES\0");
+        fill_iso_entries_from_device(file, D_FLAG_HOMEB | D_FLAG_HOMEB_MKV | (flag  & GAMELIST_FILTER), list, max, 0);
+
+        file[n] = 0; strcat(file, video_path);
+        fill_iso_entries_from_device(file, D_FLAG_HOMEB | D_FLAG_HOMEB_MKV | (flag  & GAMELIST_FILTER), list, max, 0);
+    }
+
+    if(scan_canceled) return FAILED;
+
+    // add PSX Games
+    if((append == false) && (sel == GAMEBASE_MODE) && ((game_list_category == GAME_LIST_ALL) ||
+                                                      ((game_list_category == GAME_LIST_RETRO) &&
+                                                      ((retro_mode == RETRO_ALL) || (retro_mode == RETRO_PSX) || (retro_mode == RETRO_PSALL)))))
+    {
+        int n;
+        strncpy(file, path, MAX_PATH_LEN);
+        n = 1; while(file[n] != '/' && file[n] != 0)  n++;
+
+        file[n] = 0; strcat(file, "/PSXGAMES\0");
+        fill_psx_iso_entries_from_device(file, flag, list, max);
+
+        msgDialogAbort();
+        msgDialogClose(0);
+    }
+
+    if(*max >= MAX_DIRECTORIES)
+    {
+        msgDialogAbort();
+        msgDialogClose(0);
+        return FAILED;
+    }
+
+
+    if(!(flag & BDVD_FLAG) && sel != HOMEBREW_MODE &&  game_list_category == GAME_LIST_HOMEBREW) return SUCCESS;
+
+    if(mode_homebrew == VIDEOS_MODE || is_ntfs_path(path))
+    {
+        msgDialogAbort();
+        msgDialogClose(0);
+        return SUCCESS;
+    }
+
+    dir = opendir(path);
+    if(!dir)
+    {
+        msgDialogAbort();
+        msgDialogClose(0);
+        return SUCCESS;
+    }
+
+    msgDialogProgressBarReset(MSG_PROGRESSBAR_INDEX0);
+    //strcpy(progress_bar_title, language[GAMELIST_SCANNING1]);
+
+    char pattern[128];
+
+    if(sel == GAMEBASE_MODE)
+        strcpy(pattern, "%s/PS3_GAME/PARAM.SFO\0");
+    else if(sel == HOMEBREW_MODE)
+        strcpy(pattern, "%s/PARAM.SFO\0");
+    else
+        pattern[0] = 0;
+
+    struct stat s;
+
+    while(true)
+    {
+        if(*max >= MAX_DIRECTORIES) break;
+
+        struct dirent *entry = readdir(dir);
+
         if(!entry) break;
-        if(entry->d_name[0]=='.') continue;
+
+        if(ps3pad_poll()) break;
+
+        if(entry->d_name[0] == '.' && (entry->d_name[1] == 0 || entry->d_name[1] == '.')) continue;
 
         if(!(entry->d_type & DT_DIR)) continue;
+
         if(!strncmp(entry->d_name, "covers", 6)) continue; // skip global covers folder
-        
-        list[*max ].flags= flag;
 
-        strncpy(list[*max ].title, entry->d_name, 63);
-        list[*max ].title[63]=0;
+        in_progress++; // delayed show progress
+        if (in_progress == 10)
+            msgDialogOpen2(mdialogprogress, progress_bar_title, progress_callback, (void *) 0xadef0045, NULL);
 
-        sprintf(list[*max ].path_name, "%s/%s", path, entry->d_name);
+        list[*max].flags = flag;
+
+        strncpy(list[*max].title, entry->d_name, 63);
+        list[*max].title[63] = 0;
+
+        sprintf(list[*max].path_name, "%s/%s", path, entry->d_name);
 
         if((sel == GAMEBASE_MODE) || (sel == HOMEBREW_MODE))
         {
             // read name in PARAM.SFO
-            sprintf(file, pattern, list[*max ].path_name);
+            sprintf(file, pattern, list[*max].path_name);
 
             //add splitted icon
-            if(list[*max ].title[0]=='_')
-                list[*max ].splitted = 1;
+            if(list[*max].title[0] == '_')
+                list[*max].splitted = 1;
             else
-                list[*max ].splitted = 0;
+                list[*max].splitted = 0;
 
             //get tittle from sfo
-            parse_param_sfo(file, list[*max ].title);
+            parse_param_sfo(file, list[*max].title);
 
             // ignore some games for homebrew
-            if((sel==HOMEBREW_MODE && game_category[0]!='H' && game_category[0]!='A') && 
-               (game_category[0]!='C' && game_category[1]!='B'))
+            if((sel == HOMEBREW_MODE && game_category[0] != 'H' && game_category[0] != 'A') &&
+                                       (game_category[0] != 'C' && game_category[1] != 'B'))
                 continue;
 
-            list[*max ].title[63]=0;
+            list[*max].title[63] = 0;
 
-            sprintf(file, "%s/%s",  list[*max ].path_name, "PS3_DISC.SFB" );
-            if( (sel == HOMEBREW_MODE) || 
-               ((sel == GAMEBASE_MODE) && (parse_ps3_disc((char *) file, list[*max ].title_id)<0))) {
-                    sprintf(file, pattern, list[*max ].path_name);
-                    parse_param_sfo_id(file, list[*max ].title_id); // build de ID from param.sfo
+            sprintf(file, "%s/%s", list[*max].path_name, "PS3_DISC.SFB");
+            if( (sel == HOMEBREW_MODE) ||
+               ((sel == GAMEBASE_MODE) && (parse_ps3_disc((char *) file, list[*max].title_id)<0))) {
+                    sprintf(file, pattern, list[*max].path_name);
+                    parse_param_sfo_id(file, list[*max].title_id); // build de ID from param.sfo
             }
-            list[*max ].title_id[63]=0;
-            
+            list[*max].title_id[63] = 0;
+
+            if(sel == GAMEBASE_MODE)
+                sprintf(file, "%s/PS3_GAME/USRDIR/EBOOT.BIN", list[*max].path_name);
+            else if(sel == HOMEBREW_MODE)
+                sprintf(pattern, "%s/USRDIR/EBOOT.BIN", list[*max].path_name);
         }
         else
         {
-            struct stat s;
-            sprintf(file, "%s/EBOOT.BIN", list[*max ].path_name);
-            if(stat(file, &s)<0)
-                continue;
+            sprintf(file, "%s/EBOOT.BIN", list[*max].path_name);
         }
 
-        (*max) ++;
+        if(ps3pad_poll()) break;
 
-        if(*max >= MAX_DIRECTORIES)
-            break;
+        if(stat(file, &s) < 0)  continue;
 
+        if(((*max) & 4) == 4)
+        {
+            static char string1[256];
+            msgDialogProgressBarReset(MSG_PROGRESSBAR_INDEX0);
+
+            sprintf(string1, "%s", list[*max].title);
+            msgDialogProgressBarSetMsg(MSG_PROGRESSBAR_INDEX0, string1);
+
+            bar1_countparts = 5 * (double) (*max) / ((double) (*max) + 10) ;
+            msgDialogProgressBarInc(MSG_PROGRESSBAR_INDEX0, (u32) bar1_countparts);
+
+            DbgDraw();
+            tiny3d_Flip();
+        }
+
+        if(filter_by_letter)
+        {
+            char c1[1], c2[1]; sprintf(c1, "%c", list[*max].title[0]); sprintf(c2, "%c", (47 + filter_by_letter)); if(strcasecmp(c1, c2)) continue;
+        }
+
+        if(list[*max].title[0]) (*max) ++;
     }
-    closedir (dir);
+
+    closedir(dir);
+    msgDialogAbort();
+    msgDialogClose(0);
+    return SUCCESS;
 }
 
 /*******************************************************************************************************************************************************/
 /* CONSOLE DEBUG                                                                                                                                       */
 /*******************************************************************************************************************************************************/
 
-#define CONSOLE_WIDTH		(84)
-#define CONSOLE_HEIGHT		(27)
+#define CONSOLE_WIDTH       (100)
+#define CONSOLE_HEIGHT      (27)
 
 static char dbg_str1[128];
 static char dbg_str2[128];
@@ -1283,7 +2911,7 @@ static char dbg_string[1024];
 
 int con_x = 0, con_y =0;
 
-void initConsole()
+void DCls()
 {
     con_x = 0; con_y =0;
     dbg_str1[0] = dbg_str2[0] = 0;
@@ -1311,105 +2939,122 @@ void DbgDraw()
 
     cls2();
 
-    
+
     SetFontColor(0x0fcf2fff, 0x00000000);
     SetFontAutoCenter(0);
     SetCurrentFont(FONT_TTF/*BUTTON*/);
     SetFontSize(14, 16);
 
-    
-    for(n = 0; n < CONSOLE_HEIGHT; n++) {
 
+    for(n = 0; n < CONSOLE_HEIGHT; n++)
+    {
        UTF32_to_UTF8(&dbg_data[128 * n], (void *) dbg_string);
        DrawString(4, 56 + n * 16, dbg_string);
     }
-    
+
     SetFontColor(0xffffffff, 0x00000000);
     SetCurrentFont(FONT_TTF);
 
     SetFontSize(14, 32);
-    
+
     SetFontAutoCenter(1);
     DrawString(0, 16, dbg_str1);
-    
+
 
     DrawString(0, 480, dbg_str2);
 
     SetFontAutoCenter(0);
 
     SetCurrentFont(FONT_BUTTON);
-
-
 }
 
 void DPrintf(char *format, ...)
 {
     char *str = (char *) buff;
-    va_list	opt;
-	
-	va_start(opt, format);
-	vsprintf( (void *) buff, format, opt);
-	va_end(opt);
+    va_list opt;
 
-    while(*str) {
+    va_start(opt, format);
+    vsprintf( (void *) buff, format, opt);
+    va_end(opt);
+
+    while(*str)
+    {
         u32 ttf_char;
         int n, m;
 
-        if(*str & 128) {
+        if(*str & 128)
+        {
             m = 1;
 
-            if((*str & 0xf8)==0xf0) { // 4 bytes
+            if((*str & 0xf8) == 0xf0)
+            {
+                // 4 bytes
                 ttf_char = (u32) (*(str++) & 3);
                 m = 3;
-            } else if((*str & 0xE0)==0xE0) { // 3 bytes
+            }
+            else if((*str & 0xE0) == 0xE0)
+            {
+                // 3 bytes
                 ttf_char = (u32) (*(str++) & 0xf);
                 m = 2;
-            } else if((*str & 0xE0)==0xC0) { // 2 bytes
+            }
+            else if((*str & 0xE0) == 0xC0)
+            {
+                // 2 bytes
                 ttf_char = (u32) (*(str++) & 0x1f);
                 m = 1;
-            } else {str++;continue;} // error!
+            }
+            else {str++; continue;} // error!
 
-             for(n = 0; n < m; n++) {
+             for(n = 0; n < m; n++)
+             {
                 if(!*str) break; // error!
-                    if((*str & 0xc0) != 0x80) break; // error!
-                    ttf_char = (ttf_char <<6) |((u32) (*(str++) & 63));
+
+                if((*str & 0xc0) != 0x80) break; // error!
+                ttf_char = (ttf_char <<6) |((u32) (*(str++) & 63));
              }
-           
+
             if((n != m) && !*str) break;
-        
+
         } else ttf_char = (u32) *(str++);
 
-        if(ttf_char == '\n') {
+        if(ttf_char == '\n')
+        {
             con_y++;
             con_x = 0;
-           
-            if(con_y >= CONSOLE_HEIGHT) {
+
+            if(con_y >= CONSOLE_HEIGHT)
+            {
                 con_y = CONSOLE_HEIGHT - 1;
                 memcpy((void *) dbg_data, (void *) (dbg_data + 128), 128 * (CONSOLE_HEIGHT -1) * 4);
                 dbg_data[128 * (CONSOLE_HEIGHT -1)] = 0;
-            } else dbg_data[128 * con_y + con_x] = 0;
-        } else {
-            if(con_x < CONSOLE_WIDTH) {
+            }
+            else dbg_data[128 * con_y + con_x] = 0;
+        }
+        else
+        {
+            if(con_x < CONSOLE_WIDTH)
+            {
                 dbg_data[128 * con_y + con_x] = ttf_char;
                 dbg_data[128 * con_y + con_x + 1] = 0;
                 con_x++;
-            } else {
-            con_y++;
-            con_x = 0;
-            if(con_y >= CONSOLE_HEIGHT) {
-                con_y = CONSOLE_HEIGHT - 1;
-                memcpy((void *) dbg_data, (void *) (dbg_data + 128), 128 * (CONSOLE_HEIGHT -1) * 4);
-                dbg_data[128 * (CONSOLE_HEIGHT -1)] = 0;
-               
             }
-            
-            dbg_data[128 * con_y + con_x] = ttf_char;
-            dbg_data[128 * con_y + con_x + 1] = 0;
-            con_x++;
+            else
+            {
+                con_y++;
+                con_x = 0;
+                if(con_y >= CONSOLE_HEIGHT)
+                {
+                    con_y = CONSOLE_HEIGHT - 1;
+                    memcpy((void *) dbg_data, (void *) (dbg_data + 128), 128 * (CONSOLE_HEIGHT -1) * 4);
+                    dbg_data[128 * (CONSOLE_HEIGHT -1)] = 0;
+                }
+
+                dbg_data[128 * con_y + con_x] = ttf_char;
+                dbg_data[128 * con_y + con_x + 1] = 0;
+                con_x++;
             }
         }
-
-       
     }
 
     DbgDraw();
@@ -1418,10 +3063,10 @@ void DPrintf(char *format, ...)
 
 char *getfilename_part(char *path)
 {
-    int len = strlen(path) -1;
+    int len = strlen(path) - 1;
 
-    while(len > 0) {if(path[len] == '/') {len++;break;};len--;}
- 
+    while(len > 0) {if(path[len] == '/') {len++; break;}; len--;}
+
     return &path[len];
 }
 
@@ -1432,48 +3077,48 @@ char *getfilename_part(char *path)
 
 static int copy_split_to_cache = 0;
 
-static int file_counter=0; // to count files
+static int file_counter = 0; // to count files
 
 static time_t time_start; // time counter init
 
 static char string1[256];
 
-static int abort_copy=0; // abort process
+static int abort_copy = 0; // abort process
 
-static int copy_mode=0; // 0- normal 1-> pack files >= 4GB
+static int copy_mode = 0; // 0- normal 1-> pack files >= 4GB
 
-static int copy_is_split=0; // return 1 if files is split
+static int copy_is_split = 0; // return 1 if files is split
 
-static s64 global_device_bytes=0;
+static s64 global_device_bytes = 0;
 
 #define MAX_FAST_FILES 16
 #define FILESIZE_MAX 0x200000
 
 typedef struct _t_fast_files
 {
-	s64 readed; // global bytes readed
-	s64 writed; // global bytes writed
-	s64 off_readed; // offset correction for bigfiles_mode == 2  (joining)
-	s64 len;    // global len of the file (value increased in the case of bigfiles_ mode == 2)
+    s64 readed; // global bytes readed
+    s64 writed; // global bytes writed
+    s64 off_readed; // offset correction for bigfiles_mode == 2  (joining)
+    s64 len;    // global len of the file (value increased in the case of bigfiles_ mode == 2)
 
-	int giga_counter; // counter for split files to 1GB for bigfiles_mode == 1 (split)
-	u32 fl; // operation control
-	int bigfile_mode;
-	int pos_path; // filename position used in bigfiles
+    int giga_counter; // counter for split files to 1GB for bigfiles_mode == 1 (split)
+    u32 fl; // operation control
+    int bigfile_mode;
+    int pos_path; // filename position used in bigfiles
 
-	char pathr[0x420]; // read path 
-	char pathw[0x420]; // write path
+    char pathr[MAX_PATH_LEN]; // read path
+    char pathw[MAX_PATH_LEN]; // write path
 
 
-	int use_doublebuffer; // if files >= 4MB use_doblebuffer =1;
+    int use_doublebuffer; // if files >= 4MB use_doblebuffer =1;
 
-	void *mem; // buffer for read/write files ( x2 if use_doublebuffer is fixed)
-	int size_mem; // size of the buffer for read
+    void *mem; // buffer for read/write files ( x2 if use_doublebuffer is fixed)
+    int size_mem; // size of the buffer for read
 
-	int number_frag; // used to count fragments files in bigfile_mode
+    int number_frag; // used to count fragments files in bigfile_mode
 
-	sysFSAio t_read;  // used for async read
-	sysFSAio t_write; // used for async write
+    sysFSAio t_read;  // used for async read
+    sysFSAio t_write; // used for async write
 
 } t_fast_files __attribute__((aligned(8)));
 
@@ -1494,47 +3139,61 @@ static int files_opened=0;
 
 static int total_fast_files = 0;
 
+void filepath_check(char *file)
+{
+    if((file[5] == 'u' && !strncmp(file, "/dev_usb", 8)) || (file[2] != 'd' && is_ntfs_path(file)))
+    {
+        u16 n = 8, c = 8;
+        // remove invalid chars
+        while(true)
+        {
+            if(file[c] == '\\') file[c] = '/';
+            if(strchr("\"<|>:*?", file[c]) == NULL) file[n++] = file[c];
+            if(!file[c++]) break;
+        }
+    }
+}
+
 static int fast_copy_async(char *pathr, char *pathw, int enable)
 {
-   
-	fast_num_files = 0;
 
-	fast_read    = 0;
-	fast_writing = 0;
+    fast_num_files = 0;
 
-	fast_used_mem = 0;
-	files_opened  = 0;
+    fast_read    = 0;
+    fast_writing = 0;
 
-	current_fast_file_r = current_fast_file_w = 0;
+    fast_used_mem = 0;
+    files_opened  = 0;
 
-	if(enable) {
+    current_fast_file_r = current_fast_file_w = 0;
 
-		if(sysFsAioInit(pathr)!= 0)  return -1;
-		if(sysFsAioInit(pathw)!= 0)  return -1;
+    filepath_check(pathw);
 
-		fast_files= (t_fast_files *) memalign(8, sizeof(t_fast_files) * (MAX_FAST_FILES));
-		if(!fast_files) return -2;
-       
-        
+    if(enable)
+    {
+        if(sysFsAioInit(pathr)!= 0)  return FAILED;
+        if(sysFsAioInit(pathw)!= 0)  return FAILED;
+
+        fast_files = (t_fast_files *) memalign(8, sizeof(t_fast_files) * (MAX_FAST_FILES));
+        if(!fast_files) return -2;
+
         memset((void *) fast_files, 0, sizeof(t_fast_files) * (MAX_FAST_FILES));
 
-		return 0;
-
-    } else {
-
-		if(fast_files) {
-
+        return SUCCESS;
+    }
+    else
+    {
+        if(fast_files)
+        {
             free(fast_files);
             fast_files = NULL;
-            
         }
 
-		sysFsAioFinish(pathr);
-		sysFsAioFinish(pathw);
+        sysFsAioFinish(pathr);
+        sysFsAioFinish(pathw);
     }
 
-    return 0;
-
+    return SUCCESS;
 }
 
 static int fast_copy_process();
@@ -1543,7 +3202,7 @@ static int fast_copy_process();
 
 static int nfilecached = 0;
 static s64 filecached_bytes[MAX_FILECACHED];
-static char filecached[MAX_FILECACHED][2][0x400];
+static char filecached[MAX_FILECACHED][2][MAX_PATH_LEN];
 
 static char * path_cache = NULL;
 
@@ -1551,342 +3210,353 @@ static s64 copy_total_size = 0;
 
 static int fast_copy_add(char *pathr, char *pathw, char *file)
 {
-	int size_mem;
-    
-	int strl = strlen(file);
+    int size_mem;
 
-	sysFSStat s;
-					
-	if(fast_num_files >= MAX_FAST_FILES || fast_used_mem >= FILESIZE_MAX) {
+    int strl = strlen(file);
 
-	int ret = fast_copy_process();
+    sysFSStat s;
 
-		if(ret < 0 || abort_copy) {
-         
+    filepath_check(pathw);
+
+    if(fast_num_files >= MAX_FAST_FILES || fast_used_mem >= FILESIZE_MAX)
+    {
+        int ret = fast_copy_process();
+
+        if(ret < 0 || abort_copy)
+        {
             DPrintf("%s%i\n", language[FASTCPADD_FAILED], ret);
             return ret;
         }
+    }
 
-	}
-
-	if(fast_num_files >= MAX_FAST_FILES) {
-
+    if(fast_num_files >= MAX_FAST_FILES)
+    {
         DPrintf("%s\n", language[FASTCPADD_ERRTMFILES]); return -1;
     }
-	
-	fast_files[fast_num_files].bigfile_mode = 0;
 
-	if(strl > 6) {
+    fast_files[fast_num_files].bigfile_mode = 0;
 
-		char *p = file;
-		p+= strl - 6; // adjust for .666xx
-		if(p[0] == '.' && p[1] == '6' && p[2] == '6' && p[3] == '6') {  
-			if(p[4] != '0' ||  p[5] != '0')  {return 0;} // ignore this files
-   			fast_files[fast_num_files].bigfile_mode = 2; // joining split files
-					
-		}
-		
-	}
+    if(strl > 6)
+    {
+        char *p = file;
+        p+= strl - 6; // adjust for .666xx
+        if(p[0] == '.' && p[1] == '6' && p[2] == '6' && p[3] == '6')
+        {
+            if(p[4] != '0' ||  p[5] != '0')  {return 0;} // ignore this files
+            fast_files[fast_num_files].bigfile_mode = 2; // joining split files
+        }
 
-    if(strl > 7) {
-
-		char *p = file;
-		p+= strl - 7; // adjust for .x.part
-		if(p[0] == '.'  && p[2] == '.' && p[3] == 'p') {  
-			if(p[4] == 'a' ||  p[5] == 'r' ||  p[6] == 't')  {return 0;} // ignore this files
-   				
-		}
     }
 
-    if(strl > 8) {
+    if(strl > 7)
+    {
+        char *p = file;
+        p+= strl - 7; // adjust for .x.part
+        if(p[0] == '.'  && p[2] == '.' && p[3] == 'p')
+        {
+            if(p[4] == 'a' ||  p[5] == 'r' ||  p[6] == 't')  {return 0;} // ignore this files
+        }
+    }
 
-		char *p = file;
-		p+= strl - 8; // adjust for .xx.part
-		if(p[0] == '.'  && p[3] == '.' && p[4] == 'p') {  
-			if(p[5] == 'a' ||  p[6] == 'r' ||  p[7] == 't')  {return 0;} // ignore this files
-   				
-		}
-		
-	}
+    if(strl > 8)
+    {
+        char *p = file;
+        p+= strl - 8; // adjust for .xx.part
+        if(p[0] == '.'  && p[3] == '.' && p[4] == 'p')
+        {
+            if(p[5] == 'a' ||  p[6] == 'r' ||  p[7] == 't')  {return 0;} // ignore this files
+        }
+    }
 
     // test if exists .1.part
     sprintf(buff,"%s/%s.1.part", pathr, file);
-    
-    if(sysFsStat(buff, &s)==0) {
+
+    if(sysFsStat(buff, &s) == 0)
+    {
         fast_files[fast_num_files].bigfile_mode = 3; // joining split files
     }
-	
-    if(copy_split_to_cache 
-        && fast_files[fast_num_files].bigfile_mode != 2 
+
+    if(copy_split_to_cache
+        && fast_files[fast_num_files].bigfile_mode != 2
         && fast_files[fast_num_files].bigfile_mode != 3) return 0;
-    
-    
+
+
     sprintf(fast_files[fast_num_files].pathr, "%s/%s", pathr, file);
 
-	if(sysFsStat(fast_files[fast_num_files].pathr, &s) < 0) {
-        DPrintf("%s\n", language[FASTCPADD_FAILEDSTAT]); 
+    if(sysFsStat(fast_files[fast_num_files].pathr, &s) < 0)
+    {
+        DPrintf("%s\n", language[FASTCPADD_FAILEDSTAT]);
         abort_copy = 1;
         return -1;
     }
-    
+
     if(copy_split_to_cache)
     {
         if(nfilecached <= 0) return 0;
 
-        if(fast_files[fast_num_files].bigfile_mode == 3) {
-
+        if(fast_files[fast_num_files].bigfile_mode == 3)
+        {
             sprintf(buff, "%s/%s", pathr, file);
 
             int n;
 
             for(n = 0; n < nfilecached; n++)
                 if(!strcmp(&filecached[n][0][0], buff)) break;
-            
+
             if(n == nfilecached) return 0;
 
             sprintf(fast_files[fast_num_files].pathw, "%s/%s", path_cache, file);
-           
-        } else {
-
+        }
+        else
+        {
             sprintf(buff, "%s/%s", pathr, file);
 
             char * a = strstr((char *) buff, ".66600");
-            
-            if(a && a[6]==0) a[0] = 0;
+
+            if(a && a[6] == 0) a[0] = 0;
             //if(a) a[0] = 0;
 
             int n;
 
             for(n = 0; n < nfilecached; n++)
                 if(!strcmp(&filecached[n][0][0], buff)) break;
-            
+
             if(n == nfilecached) return 0;
 
             sprintf(fast_files[fast_num_files].pathw, "%s/%s", path_cache, file);
         }
+    }
+    else
+        sprintf(fast_files[fast_num_files].pathw, "%s/%s", pathw, file);
 
-    } else
-	    sprintf(fast_files[fast_num_files].pathw, "%s/%s", pathw, file);
+    // zero files
+    if((s64) s.st_size == 0LL)
+    {
+        int fdw;
 
-	// zero files
-	if((s64) s.st_size == 0LL) {
-		int fdw;
+        if(sysFsOpen(fast_files[fast_num_files].pathw, SYS_O_CREAT | SYS_O_TRUNC | SYS_O_WRONLY, &fdw, 0,0) != 0)
+        {
+            DPrintf("%s:\n%s\n\n", language[FASTCPADD_ERROPEN], fast_files[current_fast_file_r].pathw);
+            abort_copy = 1;
+            return -1;
+        }
 
-		if(sysFsOpen(fast_files[fast_num_files].pathw, SYS_O_CREAT | SYS_O_TRUNC | SYS_O_WRONLY, &fdw, 0,0) != 0) {
-			DPrintf("%s:\n%s\n\n", language[FASTCPADD_ERROPEN], fast_files[current_fast_file_r].pathw);
-			abort_copy = 1;
-			return -1;
-	    }
-	
         sysFsClose(fdw);
 
-		sysFsChmod(fast_files[fast_num_files].pathw, FS_S_IFMT | 0777);
-		
+        sysFsChmod(fast_files[fast_num_files].pathw, FS_S_IFMT | 0777);
+
         DPrintf("%s ", language[FASTCPADD_COPYING]);
         DPrintf("%s\n", fast_files[current_fast_file_r].pathr);
-        
+
         DPrintf("w%s 0 B\n", language[GLUTIL_WROTE]);
-		
+
         file_counter++;
-		
+
         return 0;
-	}
-
-	if(fast_files[fast_num_files].bigfile_mode == 2) {
-
-		fast_files[fast_num_files].pathw[strlen(fast_files[fast_num_files].pathw)-6] = 0; // truncate the extension
-		fast_files[fast_num_files].pos_path=strlen(fast_files[fast_num_files].pathr) - 6;
-		fast_files[fast_num_files].pathr[fast_files[fast_num_files].pos_path] = 0; // truncate the extension
-
-	}
-
-    if(fast_files[fast_num_files].bigfile_mode == 3) {
-
-		//fast_files[fast_num_files].pathw[strlen(fast_files[fast_num_files].pathw)-6] = 0; // truncate the extension
-		fast_files[fast_num_files].pos_path=strlen(fast_files[fast_num_files].pathr);
-		//fast_files[fast_num_files].pathr[fast_files[fast_num_files].pos_path] = 0; // truncate the extension
-
-	}
-	
-	if(copy_mode == 1) {
-		if(((s64) s.st_size) >= 0xFFFF0001LL) {
-			fast_files[fast_num_files].bigfile_mode = 1;
-			fast_files[fast_num_files].pos_path     = strlen(fast_files[fast_num_files].pathw);
-			fast_files[fast_num_files].giga_counter = 0;
-			
-			copy_is_split = 1;
-		}
-		
-	}
-	
-
-	fast_files[fast_num_files].number_frag = 0;
-	fast_files[fast_num_files].fl = 1;
-
-	fast_files[fast_num_files].len = (s64) s.st_size;
-	fast_files[fast_num_files].use_doublebuffer = 0;
-	fast_files[fast_num_files].readed = 0LL;
-	fast_files[fast_num_files].writed = 0LL;
-
-	fast_files[fast_num_files].t_read.fd  = -1;
-	fast_files[fast_num_files].t_write.fd = -1;
-
-	if(((s64) s.st_size) >= (s64) FILESIZE_MAX) {
-		size_mem = FILESIZE_MAX;
-		fast_files[fast_num_files].use_doublebuffer = 1;
-	} else size_mem = ((int) s.st_size);
-
-    
-	fast_files[fast_num_files].mem = memalign(32, size_mem+size_mem * (fast_files[fast_num_files].use_doublebuffer != 0) + 0x420);
-	fast_files[fast_num_files].size_mem = size_mem;
-
-	if(!fast_files[fast_num_files].mem) {
-        DPrintf("%s\n", language[FASTCPADD_FAILFASTFILE]);abort_copy = 1;return -1;
     }
 
-	fast_used_mem+= size_mem;
+    if(fast_files[fast_num_files].bigfile_mode == 2)
+    {
+        fast_files[fast_num_files].pathw[strlen(fast_files[fast_num_files].pathw) - 6] = 0; // truncate the extension
+        fast_files[fast_num_files].pos_path = strlen(fast_files[fast_num_files].pathr) - 6;
+        fast_files[fast_num_files].pathr[fast_files[fast_num_files].pos_path] = 0; // truncate the extension
+    }
 
-	fast_num_files++;
+    if(fast_files[fast_num_files].bigfile_mode == 3)
+    {
+        //fast_files[fast_num_files].pathw[strlen(fast_files[fast_num_files].pathw)-6] = 0; // truncate the extension
+        fast_files[fast_num_files].pos_path = strlen(fast_files[fast_num_files].pathr);
+        //fast_files[fast_num_files].pathr[fast_files[fast_num_files].pos_path] = 0; // truncate the extension
+    }
 
-	return 0;
+    if(copy_mode == 1)
+    {
+        if(((s64) s.st_size) >= 0x100000000LL)
+        {
+            fast_files[fast_num_files].bigfile_mode = 1;
+            fast_files[fast_num_files].pos_path     = strlen(fast_files[fast_num_files].pathw);
+            fast_files[fast_num_files].giga_counter = 0;
+
+            copy_is_split = 1;
+        }
+    }
+
+    fast_files[fast_num_files].number_frag = 0;
+    fast_files[fast_num_files].fl = 1;
+
+    fast_files[fast_num_files].len = (s64) s.st_size;
+    fast_files[fast_num_files].use_doublebuffer = 0;
+    fast_files[fast_num_files].readed = 0LL;
+    fast_files[fast_num_files].writed = 0LL;
+
+    fast_files[fast_num_files].t_read.fd  = -1;
+    fast_files[fast_num_files].t_write.fd = -1;
+
+    if(((s64) s.st_size) >= (s64) FILESIZE_MAX)
+    {
+        size_mem = FILESIZE_MAX;
+        fast_files[fast_num_files].use_doublebuffer = 1;
+    }
+    else size_mem = ((int) s.st_size);
+
+
+    fast_files[fast_num_files].mem = memalign(32, size_mem+size_mem * (fast_files[fast_num_files].use_doublebuffer != 0) + MAX_PATH_LEN);
+    fast_files[fast_num_files].size_mem = size_mem;
+
+    if(!fast_files[fast_num_files].mem)
+    {
+        DPrintf("%s\n", language[FASTCPADD_FAILFASTFILE]);
+        abort_copy = 1;
+        return -1;
+    }
+
+    fast_used_mem += size_mem;
+
+    fast_num_files++;
+
+    return 0;
 }
 
 void fast_func_read(sysFSAio *xaio, s32 error, s32 xid, u64 size)
 {
-	t_fast_files* fi = (t_fast_files *) xaio->usrdata;
+    t_fast_files* fi = (t_fast_files *) xaio->usrdata;
 
-	if(error != 0 || size != xaio->size) {
-		fi->readed = -1; return;
-	} else fi->readed += (s64) size;
+    if(error != 0 || size != xaio->size)
+    {
+        fi->readed = -1; return;
+    }
+    else
+        fi->readed += (s64) size;
 
-	fast_read = 2;fi->fl = 3;
-	
+    fast_read = 2;fi->fl = 3;
+
 }
 
 static volatile s64 write_progress = 0;
 
 void fast_func_write(sysFSAio *xaio, s32 error, s32 xid, u64 size)
 {
-	t_fast_files* fi = (t_fast_files *) xaio->usrdata;
+    t_fast_files* fi = (t_fast_files *) xaio->usrdata;
 
-	if(error != 0 || size != xaio->size) {
-		fi->writed = -1;
-	} else {
-
-		fi->writed += (s64) size;
-		fi->giga_counter += (int) size;
-		global_device_bytes += (s64) size;
+    if(error != 0 || size != xaio->size)
+        fi->writed = -1;
+    else
+    {
+        fi->writed += (s64) size;
+        fi->giga_counter += (int) size;
+        global_device_bytes += (s64) size;
         write_progress = (s64) size;
-	}
+    }
 
-	fast_writing = 2;
+    fast_writing = 2;
 }
 
 int fast_copy_process()
 {
 
-	int n;
+    int n;
 
-	int fdr, fdw;
+    int fdr, fdw;
 
-	static int id_r = -1, id_w = -1;
+    static int id_r = -1, id_w = -1;
 
-	int error = 0;
+    int error = 0;
     int time_left = 0;
 
-	int i_reading = 0;
+    int i_reading = 0;
 
-	s64 write_end = 0, write_size = 0;
-    
+    s64 write_end = 0, write_size = 0;
+
     write_progress = 0;
 
     current_fast_file_r = current_fast_file_w = 0;
 
-	
-	while(current_fast_file_r < fast_num_files || current_fast_file_w < fast_num_files 
-        || fast_writing || files_opened) {
 
+    while(current_fast_file_r < fast_num_files ||
+          current_fast_file_w < fast_num_files ||
+          fast_writing || files_opened)
+    {
+        if(abort_copy) break;
 
-		if(abort_copy) break;
-		
-		// open read
-		if(current_fast_file_r < fast_num_files && fast_files[current_fast_file_r].fl == 1 && !i_reading && !fast_read && files_opened < 2) {
-			
-			fast_files[current_fast_file_r].readed = 0LL;
-			fast_files[current_fast_file_r].writed = 0LL;
-			fast_files[current_fast_file_r].off_readed = 0LL;
+        // open read
+        if(current_fast_file_r < fast_num_files && fast_files[current_fast_file_r].fl == 1 && !i_reading && !fast_read && files_opened < 2)
+        {
+            fast_files[current_fast_file_r].readed = 0LL;
+            fast_files[current_fast_file_r].writed = 0LL;
+            fast_files[current_fast_file_r].off_readed = 0LL;
 
-			fast_files[current_fast_file_r].t_read.fd  = -1;
-			fast_files[current_fast_file_r].t_write.fd = -1;
-				
-			if(fast_files[current_fast_file_r].bigfile_mode == 1) {
-				
+            fast_files[current_fast_file_r].t_read.fd  = -1;
+            fast_files[current_fast_file_r].t_write.fd = -1;
+
+            if(fast_files[current_fast_file_r].bigfile_mode == 1)
+            {
                 DPrintf("%s >= 4GB\n", language[GLUTIL_SPLITFILE]);
                 DPrintf(" %s\n", fast_files[current_fast_file_r].pathr);
 
-					sprintf(&fast_files[current_fast_file_r].pathw[fast_files[current_fast_file_r].pos_path], ".666%2.2i",
-						fast_files[current_fast_file_r].number_frag);
-			}
-				
-			if(fast_files[current_fast_file_r].bigfile_mode == 2) {
+                sprintf(&fast_files[current_fast_file_r].pathw[fast_files[current_fast_file_r].pos_path], ".666%2.2i",
+                         fast_files[current_fast_file_r].number_frag);
+            }
+
+            if(fast_files[current_fast_file_r].bigfile_mode == 2)
+            {
+                DPrintf("%s >= 4GB\n", language[FASTCPPRC_JOINFILE]);
+                DPrintf(" %s\n", fast_files[current_fast_file_r].pathw);
+
+                sprintf(&fast_files[current_fast_file_r].pathr[fast_files[current_fast_file_r].pos_path], ".666%2.2i",
+                         fast_files[current_fast_file_r].number_frag);
+            }
+
+            if(fast_files[current_fast_file_r].bigfile_mode == 3)
+            {
 
                 DPrintf("%s >= 4GB\n", language[FASTCPPRC_JOINFILE]);
                 DPrintf(" %s\n", fast_files[current_fast_file_r].pathw);
-				
-				sprintf(&fast_files[current_fast_file_r].pathr[fast_files[current_fast_file_r].pos_path], ".666%2.2i",
-				fast_files[current_fast_file_r].number_frag);
-			}
 
-            if(fast_files[current_fast_file_r].bigfile_mode == 3) {
-			
-                DPrintf("%s >= 4GB\n", language[FASTCPPRC_JOINFILE]);
-               
-                DPrintf(" %s\n", fast_files[current_fast_file_r].pathw);
+                if(fast_files[current_fast_file_r].number_frag!=0)
+                    sprintf(&fast_files[current_fast_file_r].pathr[fast_files[current_fast_file_r].pos_path], ".%i.part",
+                             fast_files[current_fast_file_r].number_frag);
+            }
 
-                if(fast_files[current_fast_file_r].number_frag!=0) 
-				    sprintf(&fast_files[current_fast_file_r].pathr[fast_files[current_fast_file_r].pos_path], ".%i.part",
-				    fast_files[current_fast_file_r].number_frag);
-			}
-			
-			//DPrintf("Open R: %s\nOpen W: %s, Index %i/%i\n", fast_files[current_fast_file_r].pathr,
-			//	fast_files[current_fast_file_r].pathw, current_fast_file_r, fast_num_files);
-            
+            //DPrintf("Open R: %s\nOpen W: %s, Index %i/%i\n", fast_files[current_fast_file_r].pathr,
+            //  fast_files[current_fast_file_r].pathw, current_fast_file_r, fast_num_files);
+
             int err;
-         
-           
-			err = sysFsOpen(fast_files[current_fast_file_r].pathr, SYS_O_RDONLY, &fdr, 0,0);
-                
-			if( err != 0) {
-				
+
+
+            err = sysFsOpen(fast_files[current_fast_file_r].pathr, SYS_O_RDONLY, &fdr, 0,0);
+
+            if( err != 0)
+            {
                 DPrintf("Error Opening (read): %x %i\n%s\n\n", err, files_opened, fast_files[current_fast_file_r].pathr);
-				error =-1;
-				break;
+                error =-1;
+                break;
 
-			} else files_opened++;
-            
-            msgDialogProgressBarReset(MSG_PROGRESSBAR_INDEX1);write_progress = 0;
+            }
+            else files_opened++;
+
+            msgDialogProgressBarReset(MSG_PROGRESSBAR_INDEX1); write_progress = 0;
             msgDialogProgressBarSetMsg(MSG_PROGRESSBAR_INDEX1, getfilename_part(fast_files[current_fast_file_r].pathw));
-			if(sysFsOpen(fast_files[current_fast_file_r].pathw, SYS_O_CREAT | SYS_O_TRUNC | SYS_O_WRONLY, &fdw, 0, 0) != 0) {
-				
+            if(sysFsOpen(fast_files[current_fast_file_r].pathw, SYS_O_CREAT | SYS_O_TRUNC | SYS_O_WRONLY, &fdw, 0, 0) != 0)
+            {
                 DPrintf("Error Opening (write):\n%s\n\n", fast_files[current_fast_file_r].pathw);
-				error = -2;
-				break;
+                error = -2;
+                break;
+            }
+            else files_opened++;
 
-			} else files_opened++;
+            //if(fast_files[current_fast_file_r].bigfile_mode == 0) { }
+                    //DPrintf("Copying %s\n", fast_files[current_fast_file_r].pathr);
+            if(fast_files[current_fast_file_r].bigfile_mode && fast_files[current_fast_file_r].bigfile_mode!=3)
+                DPrintf("    -> .666%2.2i\n", fast_files[current_fast_file_r].number_frag);
 
-			//if(fast_files[current_fast_file_r].bigfile_mode==0) { }
-					//DPrintf("Copying %s\n", fast_files[current_fast_file_r].pathr);
-			if(fast_files[current_fast_file_r].bigfile_mode && fast_files[current_fast_file_r].bigfile_mode!=3)
-				DPrintf("    -> .666%2.2i\n", fast_files[current_fast_file_r].number_frag);
+            if(fast_files[current_fast_file_r].bigfile_mode == 3)
+                DPrintf("    -> .%i.part\n", fast_files[current_fast_file_r].number_frag);
 
-            if(fast_files[current_fast_file_r].bigfile_mode==3) 
-			    DPrintf("    -> .%i.part\n", fast_files[current_fast_file_r].number_frag);
-       
             fast_files[current_fast_file_r].t_read.fd = fdr;
 
             fast_files[current_fast_file_r].t_read.offset = 0LL;
             fast_files[current_fast_file_r].t_read.buffer_addr = (u32) (u64) fast_files[current_fast_file_r].mem;
-        
+
             fast_files[current_fast_file_r].t_read.size = fast_files[current_fast_file_r].len - fast_files[current_fast_file_r].readed;
 
             if((s64) fast_files[current_fast_file_r].t_read.size > fast_files[current_fast_file_r].size_mem)
@@ -1898,91 +3568,96 @@ int fast_copy_process()
             fast_files[current_fast_file_r].t_write.usrdata = (u64 )&fast_files[current_fast_file_r];
             fast_files[current_fast_file_r].t_write.offset = 0LL;
             if(fast_files[current_fast_file_r].use_doublebuffer)
-                fast_files[current_fast_file_r].t_write.buffer_addr = 
+                fast_files[current_fast_file_r].t_write.buffer_addr =
                     (u32) (u64) (((char *) fast_files[current_fast_file_r].mem) + fast_files[current_fast_file_r].size_mem);
             else
                 fast_files[current_fast_file_r].t_write.buffer_addr = (u32) (u64) fast_files[current_fast_file_r].mem;
 
-			fast_read = 1; fast_files[current_fast_file_r].fl = 2;
-				
-            if(sysFsAioRead(&fast_files[current_fast_file_r].t_read, &id_r, fast_func_read) != 0) {
-				id_r  = -1;
-				error = -3;
-				DPrintf("Fail to perform Async Read\n\n");
-				fast_read = 0;
-				break;
-			}
+            fast_read = 1; fast_files[current_fast_file_r].fl = 2;
 
-			i_reading = 1;
+            if(sysFsAioRead(&fast_files[current_fast_file_r].t_read, &id_r, fast_func_read) != 0)
+            {
+                id_r  = -1;
+                error = -3;
+                DPrintf("Fail to perform Async Read\n\n");
+                fast_read = 0;
+                break;
+            }
 
-		}
+            i_reading = 1;
+        }
 
-		// fast read end
+        // fast read end
 
-            if(current_fast_file_r < fast_num_files && fast_files[current_fast_file_r].fl == 3 && !fast_writing) {
-                id_r = -1;
-                
-                if(fast_files[current_fast_file_r].readed < 0LL) {
-                    DPrintf("Error Reading %s\n", fast_files[current_fast_file_r].pathr);
-                    error = -3;
+        if(current_fast_file_r < fast_num_files && fast_files[current_fast_file_r].fl == 3 && !fast_writing)
+        {
+            id_r = -1;
+
+            if(fast_files[current_fast_file_r].readed < 0LL)
+            {
+                DPrintf("Error Reading %s\n", fast_files[current_fast_file_r].pathr);
+                error = -3;
+                break;
+            }
+
+            // double buffer
+
+            if(fast_files[current_fast_file_r].use_doublebuffer)
+            {
+                //DPrintf("Double Buff Write\n");
+
+                current_fast_file_w = current_fast_file_r;
+
+                memcpy(((char *) fast_files[current_fast_file_r].mem) + fast_files[current_fast_file_r].size_mem,
+                fast_files[current_fast_file_r].mem, fast_files[current_fast_file_r].size_mem);
+
+                fast_files[current_fast_file_w].t_write.size = fast_files[current_fast_file_r].t_read.size;
+
+                if(fast_files[current_fast_file_w].bigfile_mode == 1)
+                    fast_files[current_fast_file_w].t_write.offset = (s64) fast_files[current_fast_file_w].giga_counter;
+                else
+                    fast_files[current_fast_file_w].t_write.offset = fast_files[current_fast_file_w].writed;
+
+                fast_writing = 1;
+
+                if(sysFsAioWrite(&fast_files[current_fast_file_w].t_write, &id_w, fast_func_write) != 0)
+                {
+                    id_w  = -1;
+                    error = -4;
+                    DPrintf("Fail to perform Async Write\n\n");
+                    fast_writing = 0;
                     break;
                 }
-                
-                // double buffer
 
-                if(fast_files[current_fast_file_r].use_doublebuffer) {
-                    //DPrintf("Double Buff Write\n");
-                        
-                    current_fast_file_w = current_fast_file_r;
-                    
-                    memcpy(((char *) fast_files[current_fast_file_r].mem) + fast_files[current_fast_file_r].size_mem,
-                    fast_files[current_fast_file_r].mem, fast_files[current_fast_file_r].size_mem);
+                if(fast_files[current_fast_file_r].readed < fast_files[current_fast_file_r].len)
+                {
+                    fast_files[current_fast_file_r].t_read.size = fast_files[current_fast_file_r].len - fast_files[current_fast_file_r].readed;
 
-                    fast_files[current_fast_file_w].t_write.size = fast_files[current_fast_file_r].t_read.size;
-                    
-                    if(fast_files[current_fast_file_w].bigfile_mode == 1)
-                        fast_files[current_fast_file_w].t_write.offset = (s64) fast_files[current_fast_file_w].giga_counter;
-                    else
-                        fast_files[current_fast_file_w].t_write.offset = fast_files[current_fast_file_w].writed;
-                    
-                    fast_writing = 1;
+                    if((s64) fast_files[current_fast_file_r].t_read.size > fast_files[current_fast_file_r].size_mem)
+                            fast_files[current_fast_file_r].t_read.size = fast_files[current_fast_file_r].size_mem;
 
-                    if(sysFsAioWrite(&fast_files[current_fast_file_w].t_write, &id_w, fast_func_write) != 0) {
-                    
-                        id_w  = -1;
-                        error = -4;
-                        DPrintf("Fail to perform Async Write\n\n");
-                        fast_writing = 0;
+                    fast_files[current_fast_file_r].fl = 2;
+                    fast_files[current_fast_file_r].t_read.offset = fast_files[current_fast_file_r].readed - fast_files[current_fast_file_r].off_readed;
+
+                    fast_read = 1;
+
+                    if(sysFsAioRead(&fast_files[current_fast_file_r].t_read, &id_r, fast_func_read) != 0)
+                    {
+                        id_r = -1;
+                        error = -3;
+
+                        DPrintf("Fail to perform Async Read\n\n");
+
+                        fast_read = 0;
                         break;
                     }
-
-                    if(fast_files[current_fast_file_r].readed < fast_files[current_fast_file_r].len) {
-                        
-                        fast_files[current_fast_file_r].t_read.size = fast_files[current_fast_file_r].len - fast_files[current_fast_file_r].readed;
-                        
-                        if((s64) fast_files[current_fast_file_r].t_read.size > fast_files[current_fast_file_r].size_mem)
-                                fast_files[current_fast_file_r].t_read.size = fast_files[current_fast_file_r].size_mem;
-
-                        fast_files[current_fast_file_r].fl = 2;
-                        fast_files[current_fast_file_r].t_read.offset = fast_files[current_fast_file_r].readed - fast_files[current_fast_file_r].off_readed;
-
-                        fast_read = 1;
-                        
-                        if(sysFsAioRead(&fast_files[current_fast_file_r].t_read, &id_r, fast_func_read) != 0) {
-                            id_r = -1;
-                            error = -3;
-                            
-                            DPrintf("Fail to perform Async Read\n\n");
-                            
-                            fast_read = 0;
-                            break;
-                        }
-                } else {
-
-                    if(fast_files[current_fast_file_r].bigfile_mode == 2 || fast_files[current_fast_file_r].bigfile_mode == 3) {
-                        
+                }
+                else
+                {
+                    if(fast_files[current_fast_file_r].bigfile_mode == 2 || fast_files[current_fast_file_r].bigfile_mode == 3)
+                    {
                         sysFSStat s;
-                                
+
                         fast_files[current_fast_file_r].number_frag++;
 
                         if(fast_files[current_fast_file_r].number_frag)
@@ -1990,24 +3665,29 @@ int fast_copy_process()
 
                         fast_files[current_fast_file_r].off_readed = fast_files[current_fast_file_r].readed;
 
-                        if(fast_files[current_fast_file_r].bigfile_mode == 3) {
-                            
+                        if(fast_files[current_fast_file_r].bigfile_mode == 3)
+                        {
                             DPrintf("    -> .%i.part\n", fast_files[current_fast_file_r].number_frag);
-                            
+
                             sprintf(&fast_files[current_fast_file_r].pathr[fast_files[current_fast_file_r].pos_path], ".%i.part",
                             fast_files[current_fast_file_r].number_frag);
-                        } else {
+                        }
+                        else
+                        {
                             DPrintf("    -> .666%2.2i\n", fast_files[current_fast_file_r].number_frag);
-                      
+
                             sprintf(&fast_files[current_fast_file_r].pathr[fast_files[current_fast_file_r].pos_path], ".666%2.2i",
                             fast_files[current_fast_file_r].number_frag);
                         }
 
                         if(sysFsStat(fast_files[current_fast_file_r].pathr, &s) < 0) {current_fast_file_r++; i_reading = 0;}
-                        else {
-                            if(fast_files[current_fast_file_r].t_read.fd >= 0) {
-                                 int r = sysFsClose(fast_files[current_fast_file_r].t_read.fd); 
-                                 if(r<0) {
+                        else
+                        {
+                            if(fast_files[current_fast_file_r].t_read.fd >= SUCCESS)
+                            {
+                                 int r = sysFsClose(fast_files[current_fast_file_r].t_read.fd);
+                                 if(r < 0)
+                                 {
                                     DPrintf("Error en Close (.666) %x\n", (u32) r);
                                     error = -4;
                                     break;
@@ -2017,84 +3697,91 @@ int fast_copy_process()
 
                                  files_opened--;
                             }
-                        
-                        fast_files[current_fast_file_r].t_read.fd = -1;
-                        
-                        int err =sysFsOpen(fast_files[current_fast_file_r].pathr, SYS_O_RDONLY, &fdr, 0, 0);
-                        if(err != 0) {
-                            
-                            DPrintf("Error Opening (read): %x\n%s\n\n", err, fast_files[current_fast_file_r].pathr);
-                            error = -1;
-                            break;
-                        } else files_opened++;
-                     
 
-                        fast_files[current_fast_file_r].t_read.fd = fdr;
-                        fast_files[current_fast_file_r].len += (s64) s.st_size;
-                        fast_files[current_fast_file_r].t_read.offset = 0LL;
-                        fast_files[current_fast_file_r].t_read.buffer_addr = (u32) (u64) fast_files[current_fast_file_r].mem;
+                            fast_files[current_fast_file_r].t_read.fd = -1;
 
-                        fast_files[current_fast_file_r].t_read.size = fast_files[current_fast_file_r].len-fast_files[current_fast_file_r].readed;
-                        if((s64) fast_files[current_fast_file_r].t_read.size > fast_files[current_fast_file_r].size_mem)
-                            fast_files[current_fast_file_r].t_read.size = fast_files[current_fast_file_r].size_mem;
+                            int err =sysFsOpen(fast_files[current_fast_file_r].pathr, SYS_O_RDONLY, &fdr, 0, 0);
+                            if(err != 0)
+                            {
+                                DPrintf("Error Opening (read): %x\n%s\n\n", err, fast_files[current_fast_file_r].pathr);
+                                error = -1;
+                                break;
+                            }
+                            else
+                                files_opened++;
 
-                        fast_files[current_fast_file_r].t_read.usrdata = (u64 )&fast_files[current_fast_file_r];
 
-                        fast_read = 1;
+                            fast_files[current_fast_file_r].t_read.fd = fdr;
+                            fast_files[current_fast_file_r].len += (s64) s.st_size;
+                            fast_files[current_fast_file_r].t_read.offset = 0LL;
+                            fast_files[current_fast_file_r].t_read.buffer_addr = (u32) (u64) fast_files[current_fast_file_r].mem;
 
-                        if(sysFsAioRead(&fast_files[current_fast_file_r].t_read, &id_r, fast_func_read) != 0) {
-                            
-                            id_r  = -1;
-                            error = -3;
-                            DPrintf("Fail to perform Async Read\n\n");
-                            fast_read = 0;
-                            break;
+                            fast_files[current_fast_file_r].t_read.size = fast_files[current_fast_file_r].len-fast_files[current_fast_file_r].readed;
+                            if((s64) fast_files[current_fast_file_r].t_read.size > fast_files[current_fast_file_r].size_mem)
+                                fast_files[current_fast_file_r].t_read.size = fast_files[current_fast_file_r].size_mem;
+
+                            fast_files[current_fast_file_r].t_read.usrdata = (u64 )&fast_files[current_fast_file_r];
+
+                            fast_read = 1;
+
+                            if(sysFsAioRead(&fast_files[current_fast_file_r].t_read, &id_r, fast_func_read) != 0)
+                            {
+                                id_r  = -1;
+                                error = -3;
+                                DPrintf("Fail to perform Async Read\n\n");
+                                fast_read = 0;
+                                break;
+                            }
+
+                            fast_files[current_fast_file_r].fl = 2;
+
                         }
-
-                    fast_files[current_fast_file_r].fl = 2;
-
                     }
-                
-                } else {fast_files[current_fast_file_r].fl = 5; current_fast_file_r++; i_reading = 0;}
-                                                  
+                    else
+                    {
+                        fast_files[current_fast_file_r].fl = 5;
+                        current_fast_file_r++;
+                        i_reading = 0;
+                    }
+
+                }
+
             }
+            else
+            {
+                // single buffer
 
-        } else {
-            // single buffer	
-                
-            //DPrintf("Single Buff Write\n");
+                //DPrintf("Single Buff Write\n");
 
-            current_fast_file_w = current_fast_file_r;
-            fast_files[current_fast_file_w].t_write.size = fast_files[current_fast_file_r].t_read.size;
+                current_fast_file_w = current_fast_file_r;
+                fast_files[current_fast_file_w].t_write.size = fast_files[current_fast_file_r].t_read.size;
 
-            fast_files[current_fast_file_w].t_write.offset = fast_files[current_fast_file_w].writed;
-            
-            fast_writing = 1;
+                fast_files[current_fast_file_w].t_write.offset = fast_files[current_fast_file_w].writed;
 
-                if(sysFsAioWrite(&fast_files[current_fast_file_w].t_write, &id_w, fast_func_write) != 0) {
+                fast_writing = 1;
 
+                if(sysFsAioWrite(&fast_files[current_fast_file_w].t_write, &id_w, fast_func_write) != 0)
+                {
                     id_w  = -1;
                     error = -4;
                     DPrintf("Fail to perform Async Write\n\n");
                     fast_writing = 0;
                     break;
                 }
-                
-                
+
                 current_fast_file_r++;
                 i_reading = 0;
             }
-    
         }
-		
-	    // fast write end
-	    if(fast_writing > 1) {
-	    
+
+        // fast write end
+        if(fast_writing > 1)
+        {
             fast_writing = 0;
             id_w = -1;
 
-            if(fast_files[current_fast_file_w].writed < 0LL) {
-
+            if(fast_files[current_fast_file_w].writed < 0LL)
+            {
                 DPrintf("Error Writing %s\n", fast_files[current_fast_file_w].pathw);
                 error = -4;
                 break;
@@ -2103,11 +3790,13 @@ int fast_copy_process()
             write_end  = fast_files[current_fast_file_w].writed;
             write_size = fast_files[current_fast_file_w].len;
 
-            if(fast_files[current_fast_file_w].writed >= fast_files[current_fast_file_w].len) {
-
-                if(fast_files[current_fast_file_w].t_read.fd >= 0) {
+            if(fast_files[current_fast_file_w].writed >= fast_files[current_fast_file_w].len)
+            {
+                if(fast_files[current_fast_file_w].t_read.fd >= SUCCESS)
+                {
                     int r = sysFsClose(fast_files[current_fast_file_w].t_read.fd);
-                    if(r<0) {
+                    if(r < 0)
+                    {
                         DPrintf("Error en Close (read) %x\n", (u32) r);
                         error = -4;
                         break;
@@ -2116,280 +3805,272 @@ int fast_copy_process()
                     fast_read = 0;
 
                     files_opened--;
-                    
                 }
-                
+
                 fast_files[current_fast_file_w].t_read.fd = -1;
-                
-                if(fast_files[current_fast_file_w].t_write.fd >= 0) {
-                    
-                    int r= sysFsClose(fast_files[current_fast_file_w].t_write.fd); 
-                    if(r<0) {
+
+                if(fast_files[current_fast_file_w].t_write.fd >= SUCCESS)
+                {
+                    int r= sysFsClose(fast_files[current_fast_file_w].t_write.fd);
+                    if(r < 0)
+                    {
                         DPrintf("Error en Close (write) %x\n", (u32) r);
                         error = -4;
                         break;
                     }
 
                     files_opened--;
-                    
+
                     fast_files[current_fast_file_w].t_write.fd = -1;
-                    
+
                     sysFsChmod(fast_files[current_fast_file_w].pathw, FS_S_IFMT | 0777);
                 }
-                
-                
 
-                if(fast_files[current_fast_file_w].bigfile_mode == 1) {
 
+
+                if(fast_files[current_fast_file_w].bigfile_mode == 1)
+                {
                     fast_files[current_fast_file_w].pathw[fast_files[current_fast_file_w].pos_path] = 0;
                 }
 
-                if(write_size < 1024LL) {
-                   
-                    DPrintf("%s %lli B ", language[GLUTIL_WROTE], write_size);
-                    DPrintf("%s\n\n", fast_files[current_fast_file_w].pathw);
-                    }
+                if(write_size < 1024LL)
+                {
+                    DPrintf("%s (%lli B)\n", fast_files[current_fast_file_w].pathw, write_size);
+                }
+                else if(write_size < 0x100000LL)
+                {
+                    DPrintf("%s (%lli KB)\n", fast_files[current_fast_file_w].pathw, write_size  / 1024LL);
+                }
                 else
-                    if(write_size < 0x100000LL) {
-                    
-                        DPrintf("%s %lli KB ", language[GLUTIL_WROTE], write_size  / 1024LL);
-                      
-                        DPrintf("%s\n\n", fast_files[current_fast_file_w].pathw);
-                    } else  {
-                   
-                        DPrintf("%s %lli MB ", language[GLUTIL_WROTE], write_size / 0x100000LL);
-                        DPrintf("%s\n\n", fast_files[current_fast_file_w].pathw);
-                    }
-                    
-                
+                {
+                    DPrintf("%s (%lli MB)\n", fast_files[current_fast_file_w].pathw, write_size / 0x100000LL);
+                }
+
+
                 fast_files[current_fast_file_w].fl = 4; //end of proccess
-                
+
                 fast_files[current_fast_file_w].writed = -1LL;
                 current_fast_file_w++;
                 //if(current_fast_file_r<current_fast_file_w) current_fast_file_w=current_fast_file_r;
                 file_counter++;
-            } else if(fast_files[current_fast_file_w].bigfile_mode == 1 && fast_files[current_fast_file_w].giga_counter >= 0x40000000) {
+            }
+            else if(fast_files[current_fast_file_w].bigfile_mode == 1 && fast_files[current_fast_file_w].giga_counter >= 0x40000000)
+            {
                 // split big files
-                
-                if(fast_files[current_fast_file_w].t_write.fd >= 0) {
-                    int r = sysFsClose(fast_files[current_fast_file_w].t_write.fd); 
-                    if(r<0) {
+
+                if(fast_files[current_fast_file_w].t_write.fd >= SUCCESS)
+                {
+                    int r = sysFsClose(fast_files[current_fast_file_w].t_write.fd);
+                    if(r < 0)
+                    {
                         DPrintf("Error en Close (write split) %x\n", (u32) r);
                         error = -4;
                         break;
                     }
                     files_opened--;
-                    
+
                     fast_files[current_fast_file_w].t_write.fd = -1;
 
                     sysFsChmod(fast_files[current_fast_file_w].pathw, FS_S_IFMT | 0777);
                 }
-                
-                        
+
+
                 fast_files[current_fast_file_w].giga_counter = 0;
                 fast_files[current_fast_file_w].number_frag++;
 
                 sprintf(&fast_files[current_fast_file_w].pathw[fast_files[current_fast_file_w].pos_path], ".666%2.2i",
                     fast_files[current_fast_file_w].number_frag);
                 DPrintf("    -> .666%2.2i\n", fast_files[current_fast_file_w].number_frag);
-                //msgDialogProgressBarReset(MSG_PROGRESSBAR_INDEX1);write_progress = 0;
+                //msgDialogProgressBarReset(MSG_PROGRESSBAR_INDEX1); write_progress = 0;
                 msgDialogProgressBarSetMsg(MSG_PROGRESSBAR_INDEX1, getfilename_part(fast_files[current_fast_file_w].pathw));
-                if(sysFsOpen(fast_files[current_fast_file_w].pathw, SYS_O_CREAT | SYS_O_TRUNC | SYS_O_WRONLY, &fdw, 0, 0) != 0) {
+                if(sysFsOpen(fast_files[current_fast_file_w].pathw, SYS_O_CREAT | SYS_O_TRUNC | SYS_O_WRONLY, &fdw, 0, 0) != 0)
+                {
                     DPrintf("Error Opening2 (write):\n%s\n\n", fast_files[current_fast_file_w].pathw);
                     error = -2;
                     break;
-                } else files_opened++;
+                }
+                else files_opened++;
 
                 fast_files[current_fast_file_w].t_write.fd = fdw;
             }
-
-				
         }
 
-            
         int seconds = (int) (time(NULL) - time_start);
         //calc time left
         if(!copy_total_size)
         {
-            if(progress_action2) {
+            if(progress_action2)
+            {
                 abort_copy = 1;
-             
+
                 DPrintf("%s \n", language[GLUTIL_ABORTEDUSER]);
                 error = -666;
             }
 
-            if(write_progress != 0) {
+            if(write_progress != 0)
+            {
                   bar1_countparts += (100.0f*((double) write_progress)) / ((double) copy_total_size);
                   bar2_countparts += (100.0f*((double) write_progress)) / ((double) write_size);
 
                   write_progress = 0;
             }
 
-
             sprintf(string1, "(%i/%i)", file_counter, total_fast_files);
             msgDialogProgressBarSetMsg(MSG_PROGRESSBAR_INDEX0, string1);
 
-            if(bar1_countparts >= 1.0f) {
+            if(bar1_countparts >= 1.0f)
+            {
                 msgDialogProgressBarInc(MSG_PROGRESSBAR_INDEX0, (u32) bar1_countparts);
                 bar1_countparts-= (float) ((u32) bar1_countparts);
-               
             }
 
-            if(bar2_countparts >= 1.0f) {
+            if(bar2_countparts >= 1.0f)
+            {
                 msgDialogProgressBarInc(MSG_PROGRESSBAR_INDEX1, (u32) bar2_countparts);
                 bar2_countparts-= (float) ((u32) bar2_countparts);
-               
             }
-            
 
-            sprintf(string1, "%s: %i (%2.2i%%) %s: %2.2i:%2.2i:%2.2i  Vol: %1.2f GB\n", language[FASTCPPRC_COPYFILE], file_counter, 
-                    (int)(write_end * 100ULL / write_size), language[GLUTIL_TIME], seconds / 3600, (seconds / 60) % 60, seconds % 60, 
-                    ((double) global_device_bytes) / (1024.0* 1024.* 1024.0));
+            sprintf(string1, "%s: %i (%2.2i%%) %s: %2.2i:%2.2i:%2.2i  Vol: %1.2f GB\n", language[FASTCPPRC_COPYFILE], file_counter,
+                    (int)(write_end * 100ULL / write_size), language[GLUTIL_TIME], seconds / 3600, (seconds / 60) % 60, seconds % 60,
+                    ((double) global_device_bytes) / GIGABYTES);
         }
         else
         {
-           
             int tleft = ((copy_total_size - global_device_bytes) * seconds) / global_device_bytes;
             if(abs(time_left - tleft) >= 10) //more than 10 secs diff, update time
                 time_left = tleft;
-            
-            if(progress_action2) {
+
+            if(progress_action2)
+            {
                 abort_copy = 1;
                 DPrintf("%s \n", language[GLUTIL_ABORTEDUSER]);
                 error = -666;
             }
 
-            
-            if(write_progress != 0) {
-                  bar1_countparts += (100.0f*((double) write_progress)) / ((double) copy_total_size);
-                  bar2_countparts += (100.0f*((double) write_progress)) / ((double) write_size);
-                  write_progress = 0;
+            if(write_progress != 0)
+            {
+                bar1_countparts += (100.0f*((double) write_progress)) / ((double) copy_total_size);
+                bar2_countparts += (100.0f*((double) write_progress)) / ((double) write_size);
+                write_progress = 0;
             }
 
             sprintf(string1, "(%i/%i)", file_counter, total_fast_files);
             msgDialogProgressBarSetMsg(MSG_PROGRESSBAR_INDEX0, string1);
 
-            if(bar1_countparts >= 1.0f) {
+            if(bar1_countparts >= 1.0f)
+            {
                 msgDialogProgressBarInc(MSG_PROGRESSBAR_INDEX0, (u32) bar1_countparts);
                 bar1_countparts-= (float) ((u32) bar1_countparts);
-               
             }
 
-            if(bar2_countparts >= 1.0f) {
+            if(bar2_countparts >= 1.0f)
+            {
                 msgDialogProgressBarInc(MSG_PROGRESSBAR_INDEX1, (u32) bar2_countparts);
                 bar2_countparts-= (float) ((u32) bar2_countparts);
-               
             }
-     
 
-            sprintf(string1, "%s: %i (%2.2i%%) %s: %2.2i:%2.2i:%2.2i %1.2f/%1.2f GB\n", language[FASTCPPRC_COPYFILE], file_counter, 
-                    (int)(write_end * 100ULL / write_size), language[GLUTIL_TIMELEFT], time_left / 3600, (time_left / 60) % 60, time_left % 60, 
-                    ((double) global_device_bytes) / (1024.0* 1024.* 1024.0), ((double) copy_total_size/ (1024.0 * 1024. * 1024.0)));
+            sprintf(string1, "%s: %i (%2.2i%%) %s: %2.2i:%2.2i:%2.2i %1.2f/%1.2f GB\n", language[FASTCPPRC_COPYFILE], file_counter,
+                    (int)(write_end * 100ULL / write_size), language[GLUTIL_TIMELEFT], time_left / 3600, (time_left / 60) % 60, time_left % 60,
+                    ((double) global_device_bytes) / GIGABYTES, ((double) copy_total_size/ GIGABYTES));
         }
-            
+
         cls2();
 
         DbgHeader( string1);
-        
+
         DbgMess(language[GLUTIL_HOLDTRIANGLEAB]);
-      
+
         DbgDraw();
 
         tiny3d_Flip();
-        
-        pad_last_time = 0;
 
-        ps3pad_read();
-
-        if ((new_pad & BUTTON_TRIANGLE)) {
-
+        if(ps3pad_poll())
+        {
             abort_copy = 1;
             DPrintf("%s \n", language[GLUTIL_ABORTEDUSER]);
             error = -666;
             break;
         }
-        
     }
 
-	if(error && error != -666) {
-       
-		DPrintf(language[FASTCPPTC_OPENERROR], files_opened);
-		DPrintf("\n");
+    if(error && error != -666)
+    {
+        DPrintf(language[FASTCPPTC_OPENERROR], files_opened);
+        DPrintf("\n");
 
-		cls2();
+        cls2();
 
         DbgHeader( string1);
         DbgMess(language[GLUTIL_HOLDTRIANGLEAB]);
 
         DbgDraw();
 
-		tiny3d_Flip();
+        tiny3d_Flip();
 
-		usleep(20*1000000);
-	}
+        usleep(20*1000000);
+    }
 
 
-	if(fast_writing == 1 && id_w >= 0) {
-		sysFsAioCancel(id_w);
+    if(fast_writing == 1 && id_w >= 0)
+    {
+        sysFsAioCancel(id_w);
         msgDialogAbort();
-		id_w = -1;
-		usleep(200000);
-	}
-	
-	fast_writing = 0;
+        id_w = -1;
+        usleep(200000);
+    }
 
-	if(fast_read == 1 && id_r >= 0) {
-		
+    fast_writing = 0;
+
+    if(fast_read == 1 && id_r >= 0)
+    {
         sysFsAioCancel(id_r);
-		id_r =-1;
-		usleep(200000);
-	}
-	
-	fast_read = 0;
+        id_r =-1;
+        usleep(200000);
+    }
 
-	for(n = 0; n < fast_num_files; n++) {
-		if(fast_files[n].t_read.fd >= 0) {
-			
-			sysFsClose(fast_files[n].t_read.fd); 
+    fast_read = 0;
+
+    for(n = 0; n < fast_num_files; n++)
+    {
+        if(fast_files[n].t_read.fd >= SUCCESS)
+        {
+            sysFsClose(fast_files[n].t_read.fd);
             fast_files[n].t_read.fd = -1;
-			files_opened--;
-		}
-		
-        if(fast_files[n].t_write.fd >= 0)	{
-			
-			sysFsClose(fast_files[n].t_write.fd); 
+            files_opened--;
+        }
+
+        if(fast_files[n].t_write.fd >= SUCCESS)
+        {
+            sysFsClose(fast_files[n].t_write.fd);
             fast_files[n].t_write.fd = -1;
-			files_opened--;
-		}
+            files_opened--;
+        }
 
-		if(fast_files[n].mem) free(fast_files[n].mem); fast_files[n].mem = NULL;
-	}
+        if(fast_files[n].mem) free(fast_files[n].mem); fast_files[n].mem = NULL;
+    }
 
-	fast_num_files = 0;
+    fast_num_files = 0;
+    fast_writing = 0;
+    fast_used_mem = 0;
 
-	fast_writing = 0;
+    current_fast_file_r = current_fast_file_w = 0;
 
-	fast_used_mem = 0;
+    if(error) {msgDialogAbort(); abort_copy = 666; DPrintf("Error at point #1\n");}
 
-	current_fast_file_r = current_fast_file_w = 0;
-
-	if(error) {msgDialogAbort();abort_copy=666; DPrintf("Error at point #1\n");}
-
-	return error;
+    return error;
 }
 
 static s64 count_cache_bytes(char *path)
 {
     int n = 0;
     s64 bytes = 0;
-    
+
     while(n < 100)
     {
         struct stat s;
         sprintf(buff, "%s.666%2.2i", path, n);
 
-        if(stat(buff, &s)<0)
-            break; //end loop
+        if(stat(buff, &s) < 0) break; //end loop
 
         bytes += s.st_size;
         n++;
@@ -2399,79 +4080,88 @@ static s64 count_cache_bytes(char *path)
 
 }
 
-static int num_directories=0, num_files_big=0, num_files_split=0, fixed_self_sprx = 0;
+static int num_directories = 0, num_files_big = 0, num_files_split = 0, fixed_self_sprx = 0;
 
 static int my_game_test(char *path)
 {
-	DIR  *dir;
+    DIR  *dir;
     int seconds = 0, seconds2 = 0;
-   dir=opendir (path);
-   if(!dir) return -1;
-   sysFsChmod(path, FS_S_IFDIR | 0777);
 
-   while(1)
-		{
-		struct dirent *entry=readdir (dir);
-		if(!entry) break;
+    if(strstr(path, "/PS3_GAME"))
+        DPrintf("%s\n", strstr(path, "/PS3_GAME"));
+    else
+        DPrintf("%s\n", path);
 
-		if(entry->d_name[0]=='.' && entry->d_name[1]==0) continue;
-		if(entry->d_name[0]=='.' && entry->d_name[1]=='.' && entry->d_name[2]==0) continue;
+    char f[MAX_PATH_LEN];
+    struct stat s;
 
-		if((entry->d_type & DT_DIR))
-		{
-			
-            char *d1= (char *) malloc(0x420);
-				
+    dir = opendir(path);
+    if(!dir) return FAILED;
+
+    sysFsChmod(path, FS_S_IFDIR | 0777);
+
+    while(true)
+    {
+        struct dirent *entry = readdir(dir);
+
+        if(!entry) break;
+
+        if(entry->d_name[0] == '.' && (entry->d_name[1] == 0 || entry->d_name[1] == '.')) continue;
+
+        if((entry->d_type & DT_DIR))
+        {
             num_directories++;
 
-            if(!d1) {closedir (dir);DPrintf("malloc() Error!!!\n\n");abort_copy=2;return -1;}
-            sprintf(d1,"%s/%s", path, entry->d_name);
-            my_game_test(d1);
-            free(d1);
+            sprintf(f, "%s/%s", path, entry->d_name);
+            my_game_test(f);
 
             if(abort_copy) break;
-		}
-		else
-		{
-            char *f= (char *) malloc(0x420);
-
-            struct stat s;
-					
+        }
+        else
+        {
             s64 size = 0LL;
 
-            if(!f) {DPrintf("malloc() Error!!!\n\n");abort_copy=2;closedir (dir);return -1;}
-            sprintf(f,"%s/%s", path, entry->d_name);
+            sprintf(f, "%s/%s", path, entry->d_name);
 
-            if(stat(f, &s)<0) {abort_copy=3;DPrintf("File error!!!\n -> %s\n\n", f);if(f) free(f);break;}
-            
+            if(stat(f, &s) != SUCCESS) {DPrintf("File error!!!\n -> %s\n\n", f); continue;}
+            size = s.st_size;
+
             int ext = entry->d_namlen - 4;
-            if(ext > 1 && ((entry->d_name[ ext ] == 's' && entry->d_name[ ext + 1 ] == 'p' && entry->d_name[ ext + 2 ] == 'r' && entry->d_name[ ext + 3 ] == 'x') 
-                || (entry->d_name[ ext ] == 'S' && entry->d_name[ ext + 1 ] == 'P' && entry->d_name[ ext + 2 ] == 'R' && entry->d_name[ ext + 3 ] == 'X')
-                || (entry->d_name[ ext ] == 's' && entry->d_name[ ext + 1 ] == 'e' && entry->d_name[ ext + 2 ] == 'l' && entry->d_name[ ext + 3 ] == 'f')
-                || (entry->d_name[ ext ] == 'S' && entry->d_name[ ext + 1 ] == 'E' && entry->d_name[ ext + 2 ] == 'L' && entry->d_name[ ext + 3 ] == 'F')
-                ||  strcmp( entry->d_name, "EBOOT.BIN" ) == 0)) {
+            if(ext > 1 && ( strcasestr("sprx|self", entry->d_name + ext) != NULL ||
+                          ( strcmp(entry->d_name, "EBOOT.BIN" ) == SUCCESS )))
+            {
                 int r = patch_exe_error_09(f);
-                if(r==1) fixed_self_sprx++;
-                if(r == -1) {self_alarm_version = 1;DPrintf("%s requires a higher CFW!!!\n", entry->d_name);}
+
+                if(r == -1)
+                {
+                    self_alarm_version = 1;
+                    DPrintf(">> %s requires a higher CFW!!!\n", entry->d_name);
+                }
+                else if(r == 1)
+                {
+                    fixed_self_sprx++;
+                    DPrintf(">> %s [fixed]\n", entry->d_name);
+                }
+                else
+                    DPrintf(">> %s\n", entry->d_name);
+
             }
 
-            size= s.st_size;
-
-            if(strlen(entry->d_name)>6)
+            if(entry->d_namlen > 6)
             {
-                char *p= f;
-                p+= strlen(f)-6; // adjust for .666xx
-                if(p[0]== '.' && p[1]== '6' && p[2]== '6' && p[3]== '6')
+                char *p = f;
+                p += strlen(f) - 6; // adjust for .666xx
+                if(p[0] ==  '.' && p[1] ==  '6' && p[2] ==  '6' && p[3] ==  '6')
                 {
                     DPrintf("%s %lli MB %s\n\n", language[GLUTIL_SPLITFILE], size/0x100000LL, f);
                     num_files_split++;
 
-                    if(copy_split_to_cache && p[4] == '0' && p[5] == '0') 
+                    if(copy_split_to_cache && p[4] == '0' && p[5] == '0')
                     {
-                        if(nfilecached < MAX_FILECACHED) 
+                        if(nfilecached < MAX_FILECACHED)
                         {
                             sprintf(buff, language[GAMETESTS_FOUNDINSTALL], entry->d_name);
-                            if(DrawDialogYesNo(buff) == 1)
+                            if(DrawDialogYesNo(buff) == YES)
                             {
                                 sprintf(&filecached[nfilecached][0][0], "%s/%s", path, entry->d_name);
                                 sprintf(&filecached[nfilecached][1][0], "%s", entry->d_name);
@@ -2480,8 +4170,8 @@ static int my_game_test(char *path)
                                 if(a) a[0] = 0;
                                 a = strstr((char *) &filecached[nfilecached][1][0], ".66600");
                                 if(a) a[0] = 0;
-                            
-                                filecached_bytes[nfilecached]=count_cache_bytes(&filecached[nfilecached][0][0]);
+
+                                filecached_bytes[nfilecached] = count_cache_bytes(&filecached[nfilecached][0][0]);
 
                                 //prepare next
                                 nfilecached++;
@@ -2489,60 +4179,60 @@ static int my_game_test(char *path)
                         }
                     }
                 }
-            }
-
-            if(strlen(entry->d_name)>7)
-            {
-                char *p= f;
-                p+= strlen(f)-7; // adjust for .666xx
-                if(p[2]== '.' && p[3]== 'p' &&  p[4]== 'a' && p[5]== 'r' && p[6]== 't')
+                else
+                if(entry->d_namlen > 7)
                 {
-                    DPrintf("%s %lli MB %s\n\n", language[GLUTIL_SPLITFILE], size/0x100000LL, f);
-                    num_files_split++;
+                    char *p = f;
+                    p += strlen(f) - 7; // adjust for .666xx
+                    if(p[2] ==  '.' && p[3] ==  'p' &&  p[4] ==  'a' && p[5] ==  'r' && p[6] ==  't')
+                    {
+                        DPrintf("%s %lli MB %s\n\n", language[GLUTIL_SPLITFILE], size / 0x100000LL, f);
+                        num_files_split++;
 
-                    if(copy_split_to_cache && p[0] == '.' && p[1] == '1') 
-                    {   num_files_split++;
-                        if(nfilecached < MAX_FILECACHED) 
-                        {
-                            sprintf(buff, language[GAMETESTS_FOUNDINSTALL], entry->d_name);
-                            if(DrawDialogYesNo(buff) == 1)
+                        if(copy_split_to_cache && p[0] == '.' && p[1] == '1')
+                        {   num_files_split++;
+                            if(nfilecached < MAX_FILECACHED)
                             {
-                                sprintf(&filecached[nfilecached][0][0], "%s/%s", path, entry->d_name);
-                                sprintf(&filecached[nfilecached][1][0], "%s", entry->d_name);
+                                sprintf(buff, language[GAMETESTS_FOUNDINSTALL], entry->d_name);
+                                if(DrawDialogYesNo(buff) == YES)
+                                {
+                                    sprintf(&filecached[nfilecached][0][0], "%s/%s", path, entry->d_name);
+                                    sprintf(&filecached[nfilecached][1][0], "%s", entry->d_name);
 
-                                char * a = strstr((char *) &filecached[nfilecached][0][0], ".1.part");
-                                if(a) a[0] = 0;
-                                a = strstr((char *) &filecached[nfilecached][1][0], ".1.part");
-                                if(a) a[0] = 0;
-                            
-                                filecached_bytes[nfilecached]=count_cache_bytes(&filecached[nfilecached][0][0]);
+                                    char * a = strstr((char *) &filecached[nfilecached][0][0], ".1.part");
+                                    if(a) a[0] = 0;
+                                    a = strstr((char *) &filecached[nfilecached][1][0], ".1.part");
+                                    if(a) a[0] = 0;
 
-                                //prepare next
-                                nfilecached++;
+                                    filecached_bytes[nfilecached]=count_cache_bytes(&filecached[nfilecached][0][0]);
+
+                                    //prepare next
+                                    nfilecached++;
+                                }
                             }
                         }
                     }
                 }
             }
-			
-            if(size>=0x100000000LL)	{
-                DPrintf("%s %lli MB %s\n\n", language[GAMETESTS_BIGFILE], size/0x100000LL, f);num_files_big++;}
 
-            if(f) free(f);
+            if(size >= 0x100000000LL)
+            {
+                DPrintf("%s %lli MB %s\n\n", language[GAMETESTS_BIGFILE], size/0x100000LL, f); num_files_big++;
+            }
 
             //prepare info for user
-            seconds= (int) (time(NULL)-time_start);
+            seconds = (int) (time(NULL)-time_start);
 
             file_counter++;
 
-            global_device_bytes+=size;
+            global_device_bytes += size;
 
-            if(seconds!=seconds2) {
-
+            if(seconds != seconds2)
+            {
                 sprintf(string1,"%s: %i %s: %2.2i:%2.2i:%2.2i Vol: %1.2f GB\n", language[GAMETESTS_TESTFILE], file_counter,
-                        language[GLUTIL_TIME], seconds/3600, (seconds/60) % 60, seconds % 60, 
-                        ((double) global_device_bytes)/(1024.0*1024.0*1024.0));
-                
+                        language[GLUTIL_TIME], seconds/3600, (seconds / 60) % 60, seconds % 60,
+                        ((double) global_device_bytes) / GIGABYTES);
+
                 cls2();
 
                 DbgHeader( string1);
@@ -2552,29 +4242,23 @@ static int my_game_test(char *path)
 
                 tiny3d_Flip();
 
-                pad_last_time = 0;
-                ps3pad_read();
-                
+                ps3pad_poll();
+
                 seconds2 = seconds;
             }
 
             if(abort_copy) break;
-
-            if(!copy_split_to_cache && (new_pad & BUTTON_TRIANGLE))
-            {
-                abort_copy=1;
-            }
+            if(!copy_split_to_cache && (new_pad & BUTTON_CIRCLE_)) abort_copy = 1;
 
             if(abort_copy) break;
-
         }
 
     }
 
     sprintf(string1,"%s: %i %s: %2.2i:%2.2i:%2.2i Vol: %1.2f GB\n", language[GAMETESTS_TESTFILE], file_counter,
-                    language[GLUTIL_TIME], seconds/3600, (seconds/60) % 60, seconds % 60, 
-                    ((double) global_device_bytes)/(1024.0*1024.0*1024.0));
-			
+                    language[GLUTIL_TIME], seconds / 3600, (seconds / 60) % 60, seconds % 60,
+                    ((double) global_device_bytes) / GIGABYTES);
+
     cls2();
 
     DbgHeader( string1);
@@ -2585,61 +4269,54 @@ static int my_game_test(char *path)
     tiny3d_Flip();
 
 
-    closedir (dir);
+    closedir(dir);
 
-    return 0;
+    return SUCCESS;
 }
 
 static int my_game_countsize(char *path)
 {
     DIR  *dir;
-    dir=opendir (path);
-    if(!dir) return -1;
-    
+    dir = opendir(path);
+    if(!dir) return FAILED;
+
     DPrintf("count in %s\n", path);
-    
-    while(1)
+
+    char f[MAX_PATH_LEN];
+    struct stat s;
+
+    while(true)
     {
-		struct dirent *entry=readdir (dir);
-		if(!entry) break;
+        struct dirent *entry = readdir(dir);
 
-		if(entry->d_name[0]=='.' && entry->d_name[1]==0) continue;
-		if(entry->d_name[0]=='.' && entry->d_name[1]=='.' && entry->d_name[2]==0) continue;
+        if(!entry) break;
 
-		if((entry->d_type & DT_DIR))
-		{
-			char *d1= (char *) malloc(0x420);
-				
-			if(!d1) {closedir (dir);DPrintf("malloc() Error!!!\n\n");abort_copy=2;return -1;}
-			sprintf(d1,"%s/%s", path, entry->d_name);
-			my_game_countsize(d1);
-			free(d1);
+        if(entry->d_name[0] == '.' && (entry->d_name[1] == 0 || entry->d_name[1] == '.')) continue;
 
-			if(abort_copy) break;
-		}
-		else
-		{
-			char *f= (char *) malloc(0x420);
-			struct stat s;
-					
-			s64 size = 0LL;
+        if((entry->d_type & DT_DIR))
+        {
+            sprintf(f, "%s/%s", path, entry->d_name);
 
-			if(!f) {DPrintf("malloc() Error!!!\n\n");abort_copy=2;closedir (dir);return -1;}
-			sprintf(f,"%s/%s", path, entry->d_name);
+            if(strcmp(entry->d_name, "PS3_UPDATE") != 0) my_game_countsize(f);
 
-			if(stat(f, &s)<0) {abort_copy=3;DPrintf("File error!!!\n -> %s\n\n", f);if(f) free(f);break;}
+            if(abort_copy) break;
+        }
+        else
+        {
+            s64 size = 0LL;
 
-			size= s.st_size;
-                
-			if(f) free(f);
-				
-   	        file_counter++;
-				
-		    copy_total_size+=size;
-			
-            if((file_counter  & 15)== 1) {
+            sprintf(f, "%s/%s", path, entry->d_name);
 
-                sprintf(string1,"%s: %i Vol: %1.2f GB\n", language[GAMETESTS_CHECKSIZE], file_counter, ((double) copy_total_size)/(1024.0*1024.*1024.0));
+            if(stat(f, &s) != SUCCESS) {DPrintf("File error!!!\n -> %s\n\n", f); continue;}
+            size = s.st_size;
+
+            file_counter++;
+
+            copy_total_size += size;
+
+            if((file_counter  & 15) ==  1)
+            {
+                sprintf(string1,"%s: %i Vol: %1.2f GB\n", language[GAMETESTS_CHECKSIZE], file_counter, ((double) copy_total_size) / GIGABYTES);
                 cls2();
 
                 DbgHeader( string1);
@@ -2647,183 +4324,161 @@ static int my_game_countsize(char *path)
 
                 DbgDraw();
 
-                    
                 tiny3d_Flip();
             }
 
-            pad_last_time = 0;
-            ps3pad_read();
+            if(ps3pad_poll())
+            {
+                abort_copy = 1;
+            }
 
-            if(new_pad & BUTTON_TRIANGLE)
-			{
-			    abort_copy=1;
-			}
-			
-		    if(abort_copy) break;
+            if(abort_copy) break;
+        }
+    }
 
-		}
+    closedir(dir);
 
-	}
+    {
+        sprintf(string1,"%s: %i Vol: %1.2f GB\n", language[GAMETESTS_CHECKSIZE], file_counter, ((double) copy_total_size) / GIGABYTES);
+        cls2();
 
-	closedir (dir);
+        DbgHeader( string1);
+        DbgMess(language[GLUTIL_HOLDTRIANGLESK]);
 
-return 0;
+        DbgDraw();
+
+        tiny3d_Flip();
+    }
+
+    return SUCCESS;
 }
 
 static int my_game_delete(char *path)
 {
-	DIR  *dir;
-	char *f = NULL;
+    DIR  *dir;
+    char f[MAX_PATH_LEN];
     int seconds;
 
-   dir = opendir (path);
-   if(!dir) return -1;
-   sysFsChmod(path, FS_S_IFDIR | 0777);
+    dir = opendir(path);
+    if(!dir) return FAILED;
+    sysFsChmod(path, FS_S_IFDIR | 0777);
 
-   copy_split_to_cache = 0;
-   
-   while(1) {
-		struct dirent *entry = readdir (dir);
-		if(!entry) break;
-		
-		if(entry->d_name[0] == '.' && entry->d_name[1] == 0) continue;
-		if(entry->d_name[0] == '.' && entry->d_name[1] == '.' && entry->d_name[2] == 0) continue;
+    copy_split_to_cache = 0;
 
-		if((entry->d_type & DT_DIR)) {
-			
-			char *d1 = (char *) malloc(0x420);
+    while(true)
+    {
+        struct dirent *entry = readdir(dir);
 
-			if(!d1) {closedir (dir); DPrintf("malloc() Error!!!\n\n"); abort_copy=2; return -1;}
+        if(!entry) break;
 
-			sprintf(d1,"%s/%s", path, entry->d_name);
-			my_game_delete(d1);
+        if(entry->d_name[0] == '.' && (entry->d_name[1] == 0 || entry->d_name[1] == '.')) continue;
+
+        if((entry->d_type & DT_DIR))
+        {
+            sprintf(f, "%s/%s", path, entry->d_name);
+            my_game_delete(f);
 
             DPrintf("Deleting <%s>\n\n", path);
-            if(sysLv2FsRmdir(d1)) {abort_copy = 3; DPrintf("Deleting Error!!!\n -> <%s>\n\n", entry->d_name); if(d1) free(d1); break;}
-			
-            free(d1);
-			
+            if(sysLv2FsRmdir(f)) {abort_copy = 3; DPrintf("Deleting Error!!!\n -> <%s>\n\n", entry->d_name); break;}
+
             if(abort_copy) break;
-			
+
             file_counter--;
 
-			goto display_mess;
-
-		} else{
-
-			f = (char *) malloc(0x420);
-			
-			if(!f) {DPrintf("malloc() Error!!!\n\n");abort_copy = 2; closedir (dir); return -1;}
-			
+            goto display_mess;
+        }
+        else
+        {
             sprintf(f, "%s/%s", path, entry->d_name);
 
-			sysFsChmod(f, FS_S_IFMT | 0777);
-			if(sysLv2FsUnlink(f)){abort_copy = 3;DPrintf("Deleting Error!!!\n -> %s\n\n", f); if(f) free(f); break;}
+            sysFsChmod(f, FS_S_IFMT | 0777);
+            if(sysLv2FsUnlink(f)){abort_copy = 3;DPrintf("Deleting Error!!!\n -> %s\n\n", f); break;}
 
-			DPrintf("%s %s\n\n", language[GAMEDELFL_DELETED], f);
+            DPrintf("%s %s\n\n", language[GAMEDELFL_DELETED], f);
 
-			if(f) free(f);
+            display_mess:
 
-			display_mess:
+            seconds = (int) (time(NULL) - time_start);
 
-			seconds = (int) (time(NULL) - time_start);
-          
-			sprintf(string1,"%s: %i %s: %2.2i:%2.2i:%2.2i\n", language[GAMEDELFL_DELETING], file_counter, 
-        			language[GLUTIL_TIME], seconds / 3600, (seconds / 60) % 60, seconds % 60);
+            sprintf(string1,"%s: %i %s: %2.2i:%2.2i:%2.2i\n", language[GAMEDELFL_DELETING], file_counter,
+                    language[GLUTIL_TIME], seconds / 3600, (seconds / 60) % 60, seconds % 60);
 
-			file_counter++;
-		
-			cls2();
+            file_counter++;
+
+            cls2();
 
             DbgHeader( string1);
             DbgMess(language[GLUTIL_HOLDTRIANGLEAB]);
             DbgDraw();
 
-			tiny3d_Flip();
+            tiny3d_Flip();
 
-            pad_last_time = 0;
-			ps3pad_read();
+            if(abort_copy) break;
 
-			if(abort_copy) break;
+            if(ps3pad_poll())  abort_copy = 1;
 
-			if (new_pad & BUTTON_TRIANGLE) {
-				abort_copy = 1;
-			}
-					
-			if(abort_copy) break;
+            if(abort_copy) break;
+        }
+    }
 
-		}
+    closedir(dir);
 
-	}
-
-	closedir (dir);
-
-	return 0;
+    return SUCCESS;
 }
 
 static int _my_game_copy(char *path, char *path2)
 {
-	Lv2FsFile  dir;
+    Lv2FsFile  dir;
 
-	
-    if (sysFsOpendir(path, &dir)) {DPrintf("Error in sysFsOpendir()\n"); abort_copy = 7; return -1;}
-    
-	while(1) {
+    filepath_check(path2);
 
-		sysFSDirent entry;
+    if (sysFsOpendir(path, &dir)) {DPrintf("Error in sysFsOpendir()\n"); abort_copy = 7; return FAILED;}
+
+    if(!copy_split_to_cache) DPrintf("\n%s: %s\n%s: %s\n\n", language[FASTCPADD_COPYING], path, language[GLUTIL_WTO], path2);
+
+    while(true)
+    {
+        sysFSDirent entry;
         u64 read;
         read = sizeof(sysFSDirent);
 
-	    if(sysFsReaddir(dir, &entry, &read) || !read) break;
+        if(sysFsReaddir(dir, &entry, &read) || !read || abort_copy) break;
 
-		if(entry.d_name[0] == '.' && entry.d_name[1] == 0) continue;
-		if(entry.d_name[0] == '.' && entry.d_name[1] == '.' && entry.d_name[2] == 0) continue;
+        if(entry.d_name[0] == '.' && entry.d_name[1] == 0) continue;
+        if(entry.d_name[0] == '.' && entry.d_name[1] == '.' && entry.d_name[2] == 0) continue;
 
-       // if(copy_split_to_cache && (entry.d_type & DT_DIR)) continue;
+        if((entry.d_type & DT_DIR))
+        {
+            char *d1 = (char *) malloc(MAX_PATH_LEN);
+            char *d2 = (char *) malloc(MAX_PATH_LEN);
 
-		if((entry.d_type & DT_DIR)) {
+            if(!d1 || !d2) {if(d1) free(d1); if(d2) free(d2); sysFsClosedir(dir); DPrintf("malloc() Error!!!\n\n"); abort_copy = 2; return FAILED;}
 
-			if(abort_copy) break;
+            sprintf(d1,"%s/%s", path, entry.d_name);
+            sprintf(d2,"%s/%s", path2, entry.d_name);
 
-			char *d1 = (char *) malloc(0x420);
-			char *d2 = (char *) malloc(0x420);
+            if(!copy_split_to_cache) mkdir_secure(d2);
 
-			if(!d1 || !d2) {if(d1) free(d1); if(d2) free(d2); sysFsClosedir(dir); DPrintf("malloc() Error!!!\n\n"); abort_copy = 2; return -1;}
+            if(strcmp(entry.d_name, "PS3_UPDATE") != 0) _my_game_copy(d1, d2);
 
-			sprintf(d1,"%s/%s", path, entry.d_name);
-			sprintf(d2,"%s/%s", path2, entry.d_name);
-			if(!copy_split_to_cache) DPrintf("D1: %s\nD2: %s\n", path, path2);
+            free(d1); free(d2);
+        }
+        else if(strcmp(entry.d_name, "PS3UPDAT.PUP") == 0) ;
+        else
+        {
+           //if(!copy_split_to_cache) DPrintf("> %s\n", entry.d_name);
 
-			//if(strcmp(path2, "/dev_bdvd/PS3_UPDATE") == 0)
-			//{
-			if(!copy_split_to_cache) mkdir_secure(d2);
-			_my_game_copy(d1, d2);
-			//}
+           if(fast_copy_add(path, path2, entry.d_name) < 0)
+           {
+                abort_copy = 666;
+                DPrintf("Failed in fast_copy_add()\n");
+                sysFsClosedir(dir);
+                return FAILED;
+           }
+        }
 
-			free(d1); free(d2);
-
-			if(abort_copy) break;
-		} else {
-			
-            if(strcmp(entry.d_name, "PS3UPDAT.PUP") == 0) {
-			
-            } else {
-				
-               if(!copy_split_to_cache) DPrintf("EPATH: %s\nEPATH2: %s\nENTRY %s\n", path, path2, entry.d_name);
-
-				if(fast_copy_add(path, path2, entry.d_name) < 0) {
-					
-                    abort_copy = 666;
-                    DPrintf("Failed in fast_copy_add()\n");
-					sysFsClosedir(dir);
-					return -1;
-				}
-			}
-	
-		}
-		
-		if(abort_copy) break;
-	}
+        if(abort_copy) break;
+    }
 
 /*
     if(fast_num_files >= 1) {
@@ -2835,15 +4490,14 @@ static int _my_game_copy(char *path, char *path2)
             abort_copy = 666;
             DPrintf("Failed in fast_copy_add()\n");
             sysFsClosedir(dir);
-            return -1;
+            return FAILED;
         }
     }
 */
-	sysFsClosedir(dir);
-	if(abort_copy) return -1;
+    sysFsClosedir(dir);
+    if(abort_copy) return FAILED;
 
-	return 0;
-
+    return SUCCESS;
 }
 
 static int my_game_copy(char *path, char *path2)
@@ -2855,33 +4509,33 @@ static int my_game_copy(char *path, char *path2)
     bar2_countparts = 0.0f;
 
     msgDialogOpen2(mdialogprogress2, progress_bar_title, progress_callback, (void *) 0xadef0045, NULL);
-    
+
     msgDialogProgressBarSetMsg(MSG_PROGRESSBAR_INDEX0, " ");
     msgDialogProgressBarSetMsg(MSG_PROGRESSBAR_INDEX1, " ");
     msgDialogProgressBarReset(MSG_PROGRESSBAR_INDEX0);
     msgDialogProgressBarReset(MSG_PROGRESSBAR_INDEX1);
 
-    sysUtilCheckCallback();tiny3d_Flip();
+    sysUtilCheckCallback(); tiny3d_Flip();
 
-	global_device_bytes = 0;
+    global_device_bytes = 0;
 
-	if(fast_copy_async(path, path2, 1) < 0) {abort_copy = 665;  msgDialogAbort(); return -1;}
+    if(fast_copy_async(path, path2, 1) < 0) {abort_copy = 665;  msgDialogAbort(); return FAILED;}
 
-	int ret= _my_game_copy(path, path2);
+    int ret = _my_game_copy(path, path2);
 
-	int ret2 = fast_copy_process();
+    int ret2 = fast_copy_process();
 
-	fast_copy_async(path, path2, 0);
+    fast_copy_async(path, path2, 0);
 
     msgDialogAbort();
 
-	if(ret < 0 || ret2 < 0) return -1;
+    if(ret < 0 || ret2 < 0) return FAILED;
 
-	return 0;
+    return SUCCESS;
 }
 
 
-static char filename[0x420];
+static char filename[MAX_PATH_LEN];
 
 void copy_from_selection(int game_sel)
 {
@@ -2890,49 +4544,50 @@ void copy_from_selection(int game_sel)
     file_counter = 0;
     abort_copy = 0;
 
-    initConsole();
+    DCls();
     my_game_countsize(directories[game_sel].path_name);
     total_fast_files = file_counter;
 
-    if(!(directories[game_sel].flags & D_FLAG_BDVD)) {
-        if(!(directories[game_sel].flags & D_FLAG_HDD0)) { // test for HDD0
+    sleep(2); DCls();
+
+    if(!(directories[game_sel].flags & D_FLAG_BDVD))
+    {
+        if(!(directories[game_sel].flags & D_FLAG_HDD0))
+        {
+            // test for HDD0
             u32 blockSize;
             u64 freeSize;
             u64 free_hdd0;
             sysFsGetFreeSize("/dev_hdd0/", &blockSize, &freeSize);
             free_hdd0 = ( ((u64)blockSize * freeSize));
 
-            if((copy_total_size + 0x40000000LL) >= (s64) free_hdd0) {
-                sprintf(filename, "%s\n\n%s%1.2f GB", "Error: no space in HDD0 to copy it", "You need ", 
-                    ((double) (copy_total_size + 0x40000000LL - free_hdd0))/(1024.0*1024.*1024.0));
+            if((copy_total_size + 0x40000000LL) >= (s64) free_hdd0)
+            {
+                sprintf(filename, language[GAMECHCPY_NOSPACE], free_hdd0, ((double) (copy_total_size + 0x40000000LL - free_hdd0)) / GIGABYTES);
                 DrawDialogOK(filename);
+
                 return;
             }
         }
     }
 
     if(abort_copy) //abort by user or got an error
-    { 
-        if(DrawDialogYesNo(language[GAMECPYSL_GSIZEABCNTASK]) != 1)
+    {
+        if(DrawDialogYesNo(language[GAMECPYSL_GSIZEABCNTASK]) != YES)
         {
             forcedevices = D_FLAG_USB;
             return;
         }
-        else
-        {
-            //old mode
-            copy_total_size = 0;
-        }
-    } 
+    }
 
-    if(directories[game_sel].flags & D_FLAG_BDVD)  {copy_from_bluray();return;}
+    if(directories[game_sel].flags & D_FLAG_BDVD)  {copy_from_bluray(); return;}
 
 #ifdef PSDEBUG
     int ret;
 #endif
     int n;
     int curr_device = 0;
-    char name[0x420];
+    char name[MAX_PATH_LEN];
     int dest = 0;
 
     dialog_action = 0;
@@ -2942,41 +4597,41 @@ void copy_from_selection(int game_sel)
 
     char * path_install = __MKDEF_GAMES_DIR;
 
-    if(directories[game_sel].flags & D_FLAG_PSX_ISO) {path_install = "PSXGAMES"; hdd_folder2 = "dev_hdd0";}
+    if(directories[game_sel].flags & (PS1_FLAG)) {path_install = "PSXGAMES"; hdd_folder2 = "dev_hdd0";}
 
-    if(directories[game_sel].flags & D_FLAG_HDD0) {// is hdd0
-   
-            
-        for(n=1;n<11;n++) {
-            
+    if(directories[game_sel].flags & D_FLAG_HDD0)
+    {
+        // is hdd0
+        for(n = 1; n < 11; n++)
+        {
             dialog_action = 0;
-            
-            if((fdevices >> n) & 1) {
+
+            if((fdevices >> n) & 1)
+            {
                 if(copy_total_size)
                 {
-                    sprintf(filename, "%s\n\n%s HDD0 %s USB00%c?\nVol: %1.2f GB", directories[game_sel].title, 
-                        language[GLUTIL_WANTCPYFROM], language[GLUTIL_WTO], 47 + n,
-                        ((double) copy_total_size)/(1024.0*1024.*1024.0)); 
+                    sprintf(filename, "%s\n\n%s HDD0 %s USB00%c?\nVol: %1.2f GB", directories[game_sel].title,
+                            language[GLUTIL_WANTCPYFROM], language[GLUTIL_WTO], 47 + n,
+                            ((double) copy_total_size) / GIGABYTES);
                 }
                 else
                 {
-                    sprintf(filename, "%s\n\n%s HDD0 %s USB00%c?", directories[game_sel].title, language[GLUTIL_WANTCPYFROM], language[GLUTIL_WTO], 47 + n); 
+                    sprintf(filename, "%s\n\n%s HDD0 %s USB00%c?", directories[game_sel].title, language[GLUTIL_WANTCPYFROM], language[GLUTIL_WTO], 47 + n);
                 }
 
                 msgDialogOpen2( mdialogyesno, filename, my_dialog, (void*) 0x0000aaaa, NULL );
-                
-                wait_dialog();
-                
 
-                if(dialog_action == 1)  {curr_device = n;break;} // exit
+                wait_dialog();
+
+                if(dialog_action == 1)  {curr_device = n; break;} // exit
             }
         }
-        
-      
+
+
        dest = n;
 
-       if(dialog_action == 1) {
-
+       if(dialog_action == 1)
+       {
             u32 blockSize;
             u64 freeSize;
             u64 free_usb;
@@ -2988,33 +4643,37 @@ void copy_from_selection(int game_sel)
 
             free_usb = ( ((u64)blockSize * freeSize));
 
-            if((copy_total_size + 0x100000LL) >= (s64) free_usb) {
-                sprintf(filename, "%s\n\n%s%1.2f GB\n\n%s", "Warning: no space in USB to copy it", "You need ",
-                    ((double) (copy_total_size + 0x100000LL - free_usb))/(1024.0*1024.*1024.0),  "abort?");
-               
+            if((copy_total_size + 0x100000LL) >= (s64) free_usb)
+            {
+                sprintf(filename, "%s\n\n%s%1.2f GB\n\n%s", "Warning: There is not enough space in USB to copy it", "You need ",
+                    ((double) (copy_total_size + 0x100000LL - free_usb)) / GIGABYTES,  "Do you want to abort?");
+
                 dialog_action = 0;
-                
+
                 msgDialogOpen2( mdialogyesno2, filename, my_dialog, (void*) 0x0000aaaa, NULL);
 
                 wait_dialog();
 
                 if(dialog_action == 1)  {return;} else dialog_action = 1; // exit
             }
-            
-            if(directories[game_sel].flags & D_FLAG_PSX_ISO) {
+
+            if(directories[game_sel].flags & (PS1_FLAG))
+            {
                 sprintf(name, "/dev_usb00%c/PSXGAMES", 47 + curr_device);
                 mkdir_secure(name);
                 sprintf(name, "/dev_usb00%c/PSXGAMES", 47 + curr_device);
                 mkdir_secure(name);
 
                 char * p = strstr(directories[game_sel].path_name, "/PSXGAMES");
-          
-                if(!p) p = "NULL"; else p+= 10;
+
+                if(!p) p = "NULL"; else p += 10;
 
                 sprintf(name, "/dev_usb00%c/%s/%s", 47 + curr_device, path_install, p);
                 mkdir_secure(name);
 
-            } else {
+            }
+            else
+            {
                 sprintf(name, "/dev_usb00%c/" __MKDEF_GAMES_DIR, 47 + curr_device);
                 mkdir_secure(name);
                 sprintf(name, "/dev_usb00%c/" __MKDEF_GAMES_DIR, 47 + curr_device);
@@ -3023,92 +4682,117 @@ void copy_from_selection(int game_sel)
                 char * p = strstr(directories[game_sel].path_name, "/" __MKDEF_GAMES_DIR);
                 if(!p) p = strstr(directories[game_sel].path_name, "/GAMES");
 
-                if(!p) p = "NULL"; else p+= 7;
+                if(!p) p = "NULL"; else p += 7;
 
                 sprintf(name, "/dev_usb00%c/" __MKDEF_GAMES_DIR "/%s", 47 + curr_device, p);
                 mkdir_secure(name);
             }
-                
         }
 
-    } else if(fdevices & 1) { //is usb
-
-        for(n = 1; n < 11; n++) {
+    }
+    else if(fdevices & 1)
+    {
+        //is usb
+        for(n = 1; n < 11; n++)
+        {
             if((directories[game_sel].flags >> n) & 1) break;
         }
 
         if(n == 11) return;
 
         curr_device = 0;
-        
+
         dest = 0;
 
-        sprintf(filename, "%s\n\n%s USB00%c %s HDD0?\nVol: %1.2f GB", directories[game_sel].title, 
-                        language[GLUTIL_WANTCPYFROM], 47 + n, language[GLUTIL_WTO], 
-                        ((double) copy_total_size)/(1024.0*1024.*1024.0)); 
+        sprintf(filename, "%s\n\n%s USB00%c %s HDD0?\nVol: %1.2f GB", directories[game_sel].title,
+                        language[GLUTIL_WANTCPYFROM], 47 + n, language[GLUTIL_WTO],
+                        ((double) copy_total_size) / GIGABYTES);
 
         dialog_action = 0;
         msgDialogOpen2( mdialogyesno, filename, my_dialog, (void*)0x0000aaaa, NULL );
-            
+
         wait_dialog();
 
-        if(dialog_action == 1) {
+        if(dialog_action == 1)
+        {
+            sprintf(progress_bar_title, "USB00%c -> HDD0", 47 + n);
 
-            sprintf(progress_bar_title, "USB00%c -> HDD0", 47 + n); 
-           
             char *p;
-            if(directories[game_sel].flags & D_FLAG_PSX_ISO) {
-                p = strstr(directories[game_sel].path_name, "/PSXGAMES");  
+            if((directories[game_sel].flags & (PS1_FLAG)) == (PS1_FLAG))
+            {
+                p = strstr(directories[game_sel].path_name, "/PSXGAMES");
 
-                if(!p) p = "NULL"; else p+= 10;
+                if(!p) {p = strstr(directories[game_sel].path_name, "/PSXISO"); if(p) p += 8;} else p += 10;
 
-            } else {
-
-                p = strstr(directories[game_sel].path_name, "/" __MKDEF_GAMES_DIR);
-
-                if(!p) p= strstr(directories[game_sel].path_name, "/GAMES");
-
-                if(!p) p = "NULL"; else p+= 7;
+                if(!p) p = "NULL";
             }
-            
+            else
+            if((directories[game_sel].flags & (PS2_FLAG)) == (PS2_FLAG))
+            {
+                p = strstr(directories[game_sel].path_name, "/PS2ISO");
+
+                if(!p) p = "NULL"; else p += 8;
+            }
+            else
+            if((directories[game_sel].flags & (PSP_FLAG)) == (PSP_FLAG))
+            {
+                p = strstr(directories[game_sel].path_name, "/PSPISO");
+
+                if(!p) p = "NULL"; else p += 8;
+            }
+            else
+            {
+                p = strstr(directories[game_sel].path_name, "/" __MKDEF_GAMES_DIR); if(p) p += 7;
+
+                if(!p) {p = strstr(directories[game_sel].path_name, "/GAMES"); if(p) p += 7;}
+
+                if(!p) {p = strstr(directories[game_sel].path_name, "/GAMEZ"); if(p) p += 7;}
+
+                if(!p) {p = strstr(directories[game_sel].path_name, "/PS3ISO"); if(p) p += 8;}
+
+                if(!p) p = "NULL";
+            }
+
 
             while(p[0] == '_') p++; // skip special char
 
-            if(!memcmp(hdd_folder,"dev_hdd0", 9) || (directories[game_sel].flags & D_FLAG_PSX_ISO)){
+            if(!memcmp(hdd_folder,"dev_hdd0", 9) || (directories[game_sel].flags & (PS1_FLAG)))
+            {
 
-                sprintf(name, "/%s/%s", hdd_folder2, path_install);	
+                sprintf(name, "/%s/%s", hdd_folder2, path_install);
                 mkdir_secure(name);
-                sprintf(name, "/%s/%s/%s", hdd_folder2, path_install, p);	
+                sprintf(name, "/%s/%s/%s", hdd_folder2, path_install, p);
+                mkdir_secure(name);
+            }
+            else if (!memcmp(hdd_folder, "GAMES", 6) || !memcmp(hdd_folder, "dev_hdd0_2", 11))
+            {
+                sprintf(name, "/%s/GAMES", "dev_hdd0");
+                mkdir_secure(name);
+                sprintf(name, "/%s/GAMES/%s", "dev_hdd0", p);
                 mkdir_secure(name);
 
-            } else if (!memcmp(hdd_folder,"dev_hdd0_2", 11)){
-
-                sprintf(name, "/%s/GAMES", "dev_hdd0");	
+            }
+            else
+            {
+                sprintf(name, "/dev_hdd0/game/%s", hdd_folder);
                 mkdir_secure(name);
-                sprintf(name, "/%s/GAMES/%s", "dev_hdd0", p);	
+                sprintf(name, "/dev_hdd0/game/%s/" __MKDEF_GAMES_DIR, hdd_folder);
                 mkdir_secure(name);
-
-            } else{
-
-                sprintf(name, "/dev_hdd0/game/%s", hdd_folder);	
-                mkdir_secure(name);
-                sprintf(name, "/dev_hdd0/game/%s/" __MKDEF_GAMES_DIR, hdd_folder);	
-                mkdir_secure(name);
-                sprintf(name, "/dev_hdd0/game/%s/" __MKDEF_GAMES_DIR "/%s", hdd_folder, p);	
+                sprintf(name, "/dev_hdd0/game/%s/" __MKDEF_GAMES_DIR "/%s", hdd_folder, p);
                 mkdir_secure(name);
             }
         }
-        
     }
 
     // reset to update datas
     forcedevices = (1 << curr_device);
 
-    if(dialog_action == 1) {
+    if(dialog_action == 1)
+    {
         time_start = time(NULL);
 
         abort_copy = 0;
-        initConsole();
+        DCls();
         file_counter = 0;
         new_pad = 0;
 
@@ -3125,32 +4809,35 @@ void copy_from_selection(int game_sel)
 
         int seconds = (int) (time(NULL) - time_start);
         int vflip = 0;
-        
-        if(!abort_copy) {
-                
-            char *p; 
-            if(directories[game_sel].flags & D_FLAG_PSX_ISO) p = strstr(directories[game_sel].path_name, "/PSXGAMES"); 
-            else {
+
+        if(!abort_copy)
+        {
+            char *p;
+            if(directories[game_sel].flags & (PS1_FLAG)) p = strstr(directories[game_sel].path_name, "/PSXGAMES");
+            else
+            {
                 p = strstr(directories[game_sel].path_name, "/" __MKDEF_GAMES_DIR);
 
                 if(!p) p = strstr(directories[game_sel].path_name, "/GAMES");
             }
 
             if(!p) p = "NULL"; else p+= 7;
-            
+
             if(p[0] == '_') copy_is_split=555; // only rename the game
             while(p[0] == '_') p++; // skip special char
 
-            if(dest == 0) {
+            if(dest == 0)
+            {
                 // change to no split!!!
-                if(!memcmp(hdd_folder,"dev_hdd0", 9) || (directories[game_sel].flags & D_FLAG_PSX_ISO)) {
+                if(!memcmp(hdd_folder,"dev_hdd0", 9) || (directories[game_sel].flags & (PS1_FLAG)))
                     sprintf(filename, "/%s/%s/%s", hdd_folder2, path_install, p);
-                } else if(!memcmp(hdd_folder,"dev_hdd0_2", 11)) {
+                else if (!memcmp(hdd_folder, "GAMES", 6) || !memcmp(hdd_folder, "dev_hdd0_2", 11))
                     sprintf(filename, "/%s/GAMES/%s", "dev_hdd0", p);
-                } else{
+                else
                     sprintf(filename, "/dev_hdd0/game/%s/" __MKDEF_GAMES_DIR "/%s", hdd_folder, p);
-                }
-            } else {
+            }
+            else
+            {
                 if(copy_is_split)
                     sprintf(filename, "/dev_usb00%c/%s/_%s", 47+dest, path_install, p);
                 else
@@ -3159,318 +4846,46 @@ void copy_from_selection(int game_sel)
             //DrawDialogOK(name);
             //DrawDialogOK(filename);
 
+            filepath_check(filename);
+
             // try rename
-            if(copy_is_split) {
-          
+            if(copy_is_split)
+            {
+            #ifdef PSDEBUG
+                ret =
+            #endif
                 sysLv2FsRename(name, filename);
             }
 
-           
-            if(dest != 0 && copy_is_split) {
+
+            if(dest != 0 && copy_is_split)
+            {
                 sprintf(filename, language[GAMECPYSL_SPLITEDUSBNFO], directories[game_sel].title, 47 + curr_device);
-            
+
                 dialog_action = 0;
 
                 msgDialogOpen2( mdialogok, filename, my_dialog2, (void*) 0x0000aaab, NULL );
-            
+
                 wait_dialog();
             }
 
         }
 
-        while(1) {
-
-            if(abort_copy) {
-  
-                sprintf(string1,"%s  %s: %2.2i:%2.2i:%2.2i\n", language[GLUTIL_ABORTED], language[GLUTIL_TIME], 
+        while(true)
+        {
+            if(abort_copy)
+            {
+                sprintf(string1,"%s  %s: %2.2i:%2.2i:%2.2i\n", language[GLUTIL_ABORTED], language[GLUTIL_TIME],
                     seconds / 3600, (seconds/60) % 60, seconds % 60);
             }
-            else {
-
-                sprintf(string1,"%s  %s: %2.2i:%2.2i:%2.2i Vol: %1.2f GB\n", language[GAMECPYSL_DONE], language[GLUTIL_TIME], 
-                    seconds / 3600, (seconds/60) % 60, seconds % 60, ((double) global_device_bytes) / (1024.0 * 1024. * 1024.0));
-            }
-             
-            cls2();
-
-            DbgHeader( string1);
-
-            if(vflip & 32)
-                DbgMess(language[GLUTIL_XEXIT]);
             else
-               DbgMess("");
-
-            vflip++;
-                
-            DbgDraw();
-
-            tiny3d_Flip();
-
-            ps3pad_read();
-
-            if (new_pad & BUTTON_CROSS) {
-            
-                new_pad = 0;
-                break;
-            }
-
-        }
-
-        if(abort_copy) {
-
-            if(dest == 0) sprintf(filename, "%s\n\n%s HDD0?", directories[game_sel].title, language[GAMECPYSL_FAILDELDUMP]);
-                else sprintf(filename, "%s\n\n%s USB00%c?", directories[game_sel].title, language[GAMECPYSL_FAILDELDUMP], 47 + dest);
-
-            dialog_action = 0;
-            
-            msgDialogOpen2( mdialogyesno, filename, my_dialog, (void*) 0x0000aaaa, NULL );
-                    
-            wait_dialog();
-
-            if(dialog_action == 1) {
-
-                abort_copy = 0;
-                time_start = time(NULL);
-                file_counter = 0;
-
-                my_game_delete((char *) name);
-    
-                rmdir_secure((char *) name); // delete this folder
-
-                game_sel = 0;
-
-            } else {
-                
-                char *p;
-                
-                if(directories[game_sel].flags & D_FLAG_PSX_ISO) p = strstr(directories[game_sel].path_name, "/PSXGAMES");
-                else {
-                    p = strstr(directories[game_sel].path_name, "/" __MKDEF_GAMES_DIR);
-
-                    if(!p) p = strstr(directories[game_sel].path_name, "/GAMES");
-                }
-
-                if(!p) p = "NULL"; else p+= 7;
-                
-                if(p[0] == '_') p++; // skip special char
-
-                if(dest == 0) {
-
-                    if(!memcmp(hdd_folder,"dev_hdd0", 9) || (directories[game_sel].flags & D_FLAG_PSX_ISO)) {
-                        sprintf(filename, "/%s/%s/_%s", hdd_folder2, path_install, p);
-                    } else if (!memcmp(hdd_folder,"dev_hdd0_2", 11)) {
-                        sprintf(filename, "/%s/GAMES/_%s", "dev_hdd0", p);
-                    } else{
-                        sprintf(filename, "/dev_hdd0/game/%s/" __MKDEF_GAMES_DIR "/_%s", hdd_folder, p);
-                    }
-                } else {
-                    sprintf(filename, "/dev_usb00%c/" __MKDEF_GAMES_DIR "/_%s", 47 + dest, p);
-                }
-                    
-                #ifdef PSDEBUG
-                ret = 
-                #endif
-                sysLv2FsRename(name, filename);
-                
-            }
-        }
-
-        game_sel = 0;
-        
-    }
-	
-}
-
-void copy_from_bluray()
-{
-    char name[0x420];
-
-    int curr_device = 0;
-    sysFSStat status;
-
-    char id[16];
-    
-    int n;
-#ifdef PSDEBUG
-    int ret;
-#endif
-
-    dialog_action = 0;
-    abort_copy = 0;
-
-    for(n = 0; n < 11;n++) {
-        
-        dialog_action = 0;
-        
-        if((fdevices >> n) & 1) {
-
-            if(n == 0) sprintf(filename, "%s\n\n%s BDVD %s HDD0?\nVol: %1.2f GB", bluray_game, 
-                                language[GLUTIL_WANTCPYFROM], language[GLUTIL_WTO], ((double) copy_total_size)/(1024.0*1024.*1024.0));
-            else sprintf(filename, "%s\n\n%s BDVD %s USB00%c?\nVol: %1.2f GB",  bluray_game, 
-                            language[GLUTIL_WANTCPYFROM], language[GLUTIL_WTO], 47 + n, ((double) copy_total_size)/(1024.0*1024.*1024.0));
-
-            msgDialogOpen2( mdialogyesno, filename, my_dialog, (void*) 0x0000aaaa, NULL);
-            
-            wait_dialog();
-
-            if(dialog_action == 1)  
-                { if(n!=0) sprintf(progress_bar_title, "BDVD -> USB00%c", 47 + n);
-                  else sprintf(progress_bar_title, "BDVD -> HDD0");
-                  curr_device = n; break;
-                } // exit
-        }
-    }
-
-        
-    // reset to update datas
-    forcedevices = (1 << curr_device);
-
-    if(dialog_action == 1) {
-                
-            if(curr_device == 0) sprintf(name, "/dev_hdd0");
-            else sprintf(name, "/dev_usb00%c", 47 + curr_device);
-
-            if(curr_device == 0) {
-                u32 blockSize;
-                u64 freeSize;
-                u64 free_hdd0;
-                sysFsGetFreeSize("/dev_hdd0/", &blockSize, &freeSize);
-                free_hdd0 = ( ((u64)blockSize * freeSize));
-
-                if((copy_total_size + 0x40000000LL) >= (s64) free_hdd0) {
-                    sprintf(filename, "%s\n\n%s%1.2f GB", "Error: no space in HDD0 to copy it", "You need ", 
-                        ((double) (copy_total_size + 0x40000000LL - free_hdd0))/(1024.0*1024.*1024.0));
-                    DrawDialogOK(filename);
-                    return;
-                }
-            } else {
-                
-                u32 blockSize;
-                u64 freeSize;
-                u64 free_usb;
-                
-                sprintf(filename,"%s/", name);
-                sysFsGetFreeSize(filename, &blockSize, &freeSize);
-                free_usb = ( ((u64)blockSize * freeSize));
-                
-                if((copy_total_size + 0x100000LL) >= (s64) free_usb) {
-                    sprintf(filename, "%s\n\n%s%1.2f GB\n\n%s", "Warning: no space in USB to copy it", "You need ",
-                        ((double) (copy_total_size + 0x100000LL - free_usb))/(1024.0*1024.*1024.0), "abort?");
-
-                    dialog_action = 0;
-
-                    msgDialogOpen2( mdialogyesno2, filename, my_dialog, (void*) 0x0000aaaa, NULL);
-            
-                    wait_dialog();
-
-                    if(dialog_action == 1)  {return;}  // exit
-                    else dialog_action = 1;
-                }
-            }
-            
-            if (sysFsStat(name, &status) == 0 && !parse_ps3_disc((char *) "/dev_bdvd/PS3_DISC.SFB", id)) {
-                
-                
-                if(curr_device == 0) {
-                    if(!memcmp(hdd_folder,"dev_hdd0", 9)) {
-
-                        sprintf(name, "/%s/" __MKDEF_GAMES_DIR, hdd_folder);	
-                        mkdir_secure(name);
-                        sprintf(name, "/%s/" __MKDEF_GAMES_DIR "/%s", hdd_folder, id);	
-                        mkdir_secure(name);
-
-                    } else if(!memcmp(hdd_folder,"dev_hdd0_2", 11)) {
-
-                        sprintf(name, "/%s/GAMES", "dev_hdd0");	
-                        mkdir_secure(name);
-                        sprintf(name, "/%s/GAMES/%s", "dev_hdd0", id);	
-                        mkdir_secure(name);
-
-                    } else {
-                        
-                        sprintf(name, "/dev_hdd0/game/%s", hdd_folder);	
-                        mkdir_secure(name);
-                        sprintf(name, "/dev_hdd0/game/%s/" __MKDEF_GAMES_DIR, hdd_folder);	
-                        mkdir_secure(name);
-                        sprintf(name, "/dev_hdd0/game/%s/" __MKDEF_GAMES_DIR "/%s", hdd_folder, id);	
-                        mkdir_secure(name);
-                    }
-                } else {
-                    
-                    sprintf(name, "/dev_usb00%c/" __MKDEF_GAMES_DIR, 47 + curr_device);
-                    mkdir_secure(name);
-                    sprintf(name, "/dev_usb00%c/" __MKDEF_GAMES_DIR, 47 + curr_device);
-                    mkdir_secure(name);
-                    sprintf(name, "/dev_usb00%c/" __MKDEF_GAMES_DIR "/%s", 47 + curr_device, id);
-                    mkdir_secure(name);
-                }
-
-                time_start = time(NULL);
-                abort_copy = 0;
-                initConsole();
-                file_counter = 0;
-                new_pad = 0;
-                    
-                if(curr_device != 0) copy_mode = 1; // break files >= 4GB
-                else copy_mode = 0;
-
-                copy_is_split = 0;
-
-                my_game_copy((char *) "/dev_bdvd", (char *) name);
-
-                int seconds = (int) (time(NULL) - time_start);
-                int vflip = 0;
-
-                if(copy_is_split && !abort_copy) {
-
-                    if(curr_device == 0) {
-
-                        if (!memcmp(hdd_folder,"dev_hdd0", 9)) {
-
-                            sprintf(filename, "/%s/" __MKDEF_GAMES_DIR "/_%s", hdd_folder, id);
-
-                        } else if (!memcmp(hdd_folder,"dev_hdd0_2", 11)) {
-
-                            sprintf(filename, "/%s/GAMES/_%s", "dev_hdd0", id);
-
-                        } else {
-                            sprintf(filename, "/dev_hdd0/game/%s/" __MKDEF_GAMES_DIR "/_%s", hdd_folder, id);	
-                        }
-                    } else {
-                            sprintf(filename, "/dev_usb00%c/" __MKDEF_GAMES_DIR "/_%s", 47 + curr_device, id);
-                    }
-                        
-            #ifdef PSDEBUG
-            ret = 
-            #endif
-            sysLv2FsRename(name, filename);
-
-            if(curr_device == 0) 
-                sprintf(filename, language[GAMECPYSL_SPLITEDHDDNFO], id);
-            else
-                sprintf(filename, language[GAMECPYSL_SPLITEDUSBNFO], id, 47 + curr_device);
-
-            dialog_action = 0;
-            msgDialogOpen2( mdialogok, filename, my_dialog2, (void*) 0x0000aaab, NULL );
-            wait_dialog();
-            
-        }
-
-        while(1) {
-
-            if(abort_copy) {
-
-                sprintf(string1,"%s  %s: %2.2i:%2.2i:%2.2i\n", language[GLUTIL_ABORTED], language[GLUTIL_TIME], 
-                    seconds / 3600, (seconds/60) % 60, seconds % 60);
-            }
-            else {
-           
-                sprintf(string1,"%s  %s: %2.2i:%2.2i:%2.2i Vol: %1.2f GB\n", language[GAMECPYSL_DONE], language[GLUTIL_TIME], 
-                    seconds / 3600, (seconds/60) % 60, seconds % 60, ((double) global_device_bytes) / (1024.0 * 1024. * 1024.0));
+            {
+                sprintf(string1,"%s  %s: %2.2i:%2.2i:%2.2i Vol: %1.2f GB\n", language[GAMECPYSL_DONE], language[GLUTIL_TIME],
+                    seconds / 3600, (seconds / 60) % 60, seconds % 60, ((double) global_device_bytes) / GIGABYTES);
             }
 
             cls2();
-                        
+
             DbgHeader( string1);
 
             if(vflip & 32)
@@ -3479,58 +4894,336 @@ void copy_from_bluray()
                 DbgMess("");
 
             vflip++;
-            
+
             DbgDraw();
 
             tiny3d_Flip();
-            //pad_last_time = 0;
-            ps3pad_read();
 
-            if(new_pad & BUTTON_CROSS) {
-                new_pad = 0;
-                break;
+            if(ps3pad_poll())
+            {
+               new_pad = 0;
+               break;
             }
 
         }
-            
-        
-        if(abort_copy) {
 
-            if(curr_device == 0)   sprintf(filename, "%s\n\n%s HDD0?", id, language[GAMECPYSL_FAILDELDUMP]);
-                else sprintf(filename, "%s\n\n%s USB00%c?", id, language[GAMECPYSL_FAILDELDUMP], 47 + curr_device);
+        if(abort_copy)
+        {
+            if(dest == 0)
+                sprintf(filename, "%s\n\n%s HDD0?", directories[game_sel].title, language[GAMECPYSL_FAILDELDUMP]);
+            else
+                sprintf(filename, "%s\n\n%s USB00%c?", directories[game_sel].title, language[GAMECPYSL_FAILDELDUMP], 47 + dest);
 
             dialog_action = 0;
-            msgDialogOpen2(mdialogyesno, filename, my_dialog, (void*) 0x0000aaaa, NULL );
-                    
+
+            msgDialogOpen2( mdialogyesno, filename, my_dialog, (void*) 0x0000aaaa, NULL );
+
             wait_dialog();
-        
-            if(dialog_action == 1) {
-                
+
+            if(dialog_action == 1)
+            {
+                abort_copy = 0;
                 time_start = time(NULL);
                 file_counter = 0;
-                abort_copy = 0;
+
                 my_game_delete((char *) name);
 
                 rmdir_secure((char *) name); // delete this folder
 
-                } else {
-                    if(curr_device == 0) {
-                        if(!memcmp(hdd_folder,"dev_hdd0", 9)) {
-                            sprintf(filename, "/%s/" __MKDEF_GAMES_DIR "/_%s", hdd_folder, id);	
-                        } else if(!memcmp(hdd_folder,"dev_hdd0_2", 11)) {
-                            sprintf(filename, "/%s/GAMES/_%s", "dev_hdd0", id);	
-                        } else {
-                            sprintf(filename, "/dev_hdd0/game/%s/" __MKDEF_GAMES_DIR "/_%s", hdd_folder, id);	
-                        }
-                    } else {
-                        sprintf(filename, "/dev_usb00%c/" __MKDEF_GAMES_DIR "/_%s", 47 + curr_device, id);
-                    }
-                    
+                game_sel = 0;
+            }
+            else
+            {
+                char *p;
+
+                if(directories[game_sel].flags & (PS1_FLAG))
+                    p = strstr(directories[game_sel].path_name, "/PSXGAMES");
+                else
+                {
+                    p = strstr(directories[game_sel].path_name, "/" __MKDEF_GAMES_DIR);
+                    if(!p) p = strstr(directories[game_sel].path_name, "/GAMES");
+                }
+
+                if(!p) p = "NULL"; else p+= 7;
+
+                if(p[0] == '_') p++; // skip special char
+
+                if(dest == 0)
+                {
+                    if(!memcmp(hdd_folder,"dev_hdd0", 9) || (directories[game_sel].flags & (PS1_FLAG)))
+                        sprintf(filename, "/%s/%s/_%s", hdd_folder2, path_install, p);
+                    else if (!memcmp(hdd_folder, "GAMES", 6) || !memcmp(hdd_folder, "dev_hdd0_2", 11))
+                        sprintf(filename, "/%s/GAMES/_%s", "dev_hdd0", p);
+                    else
+                        sprintf(filename, "/dev_hdd0/game/%s/" __MKDEF_GAMES_DIR "/_%s", hdd_folder, p);
+                }
+                else
+                    sprintf(filename, "/dev_usb00%c/" __MKDEF_GAMES_DIR "/_%s", 47 + dest, p);
+
+
                 #ifdef PSDEBUG
-                ret = 
+                ret =
                 #endif
                 sysLv2FsRename(name, filename);
-                
+            }
+        }
+
+        game_sel = 0;
+
+    }
+
+}
+
+void copy_from_bluray()
+{
+    char name[MAX_PATH_LEN];
+
+    int curr_device = 0;
+    sysFSStat status;
+
+    char id[16];
+
+    int n;
+#ifdef PSDEBUG
+    int ret;
+#endif
+
+    dialog_action = 0;
+    abort_copy = 0;
+
+    for(n = 0; n < 11; n++)
+    {
+        dialog_action = 0;
+
+        if((fdevices >> n) & 1)
+        {
+            if(n == HDD0_DEVICE)
+                sprintf(filename, "%s\n\n%s BDVD %s HDD0?\nVol: %1.2f GB", bluray_game,
+                        language[GLUTIL_WANTCPYFROM], language[GLUTIL_WTO], ((double) copy_total_size) / GIGABYTES);
+            else
+                sprintf(filename, "%s\n\n%s BDVD %s USB00%c?\nVol: %1.2f GB",  bluray_game,
+                        language[GLUTIL_WANTCPYFROM], language[GLUTIL_WTO], 47 + n, ((double) copy_total_size) / GIGABYTES);
+
+            msgDialogOpen2( mdialogyesno, filename, my_dialog, (void*) 0x0000aaaa, NULL);
+
+            wait_dialog();
+
+            if(dialog_action == 1)
+            {
+                if(n != 0) sprintf(progress_bar_title, "BDVD -> USB00%c", 47 + n);
+                else       sprintf(progress_bar_title, "BDVD -> HDD0");
+                           curr_device = n; break;
+            }              // exit
+        }
+    }
+
+
+    // reset to update datas
+    forcedevices = (1 << curr_device);
+
+    if(dialog_action == 1)
+    {
+        if(curr_device == 0) sprintf(name, "/dev_hdd0");
+        else sprintf(name, "/dev_usb00%c", 47 + curr_device);
+
+        if(curr_device == 0)
+        {
+            u32 blockSize;
+            u64 freeSize;
+            u64 free_hdd0;
+            sysFsGetFreeSize("/dev_hdd0/", &blockSize, &freeSize);
+            free_hdd0 = ( ((u64)blockSize * freeSize));
+
+            if((copy_total_size + 0x40000000LL) >= (s64) free_hdd0)
+            {
+                sprintf(filename, language[GAMECHCPY_NOSPACE], free_hdd0, ((double) (copy_total_size + 0x40000000LL - free_hdd0)) / GIGABYTES);
+                DrawDialogOK(filename);
+                return;
+            }
+        }
+        else
+        {
+            u32 blockSize;
+            u64 freeSize;
+            u64 free_usb;
+
+            sprintf(filename,"%s/", name);
+            sysFsGetFreeSize(filename, &blockSize, &freeSize);
+            free_usb = ( ((u64)blockSize * freeSize) );
+
+            if((copy_total_size + 0x100000LL) >= (s64) free_usb)
+            {
+                sprintf(filename, "%s\n\n%s%1.2f GB\n\n%s", "Warning: There is not enough space in USB to copy it", "You need ",
+                    ((double) (copy_total_size + 0x100000LL - free_usb)) / GIGABYTES, "Do you want to abort?");
+
+                dialog_action = 0;
+
+                msgDialogOpen2( mdialogyesno2, filename, my_dialog, (void*) 0x0000aaaa, NULL);
+
+                wait_dialog();
+
+                if(dialog_action == 1)  {return;}  // exit
+                else dialog_action = 1;
+            }
+        }
+
+        if (sysFsStat(name, &status) == 0 && !parse_ps3_disc((char *) "/dev_bdvd/PS3_DISC.SFB", id))
+        {
+            if(curr_device == 0)
+            {
+                if(!memcmp(hdd_folder,"dev_hdd0", 9))
+                {
+                    sprintf(name, "/%s/" __MKDEF_GAMES_DIR, hdd_folder);
+                    mkdir_secure(name);
+                    sprintf(name, "/%s/" __MKDEF_GAMES_DIR "/%s", hdd_folder, id);
+                    mkdir_secure(name);
+                }
+                else if (!memcmp(hdd_folder, "GAMES", 6) || !memcmp(hdd_folder, "dev_hdd0_2", 11))
+                {
+                    sprintf(name, "/%s/GAMES", "dev_hdd0");
+                    mkdir_secure(name);
+                    sprintf(name, "/%s/GAMES/%s", "dev_hdd0", id);
+                    mkdir_secure(name);
+                }
+                else
+                {
+                    sprintf(name, "/dev_hdd0/game/%s", hdd_folder);
+                    mkdir_secure(name);
+                    sprintf(name, "/dev_hdd0/game/%s/" __MKDEF_GAMES_DIR, hdd_folder);
+                    mkdir_secure(name);
+                    sprintf(name, "/dev_hdd0/game/%s/" __MKDEF_GAMES_DIR "/%s", hdd_folder, id);
+                    mkdir_secure(name);
+                }
+            }
+            else
+            {
+                sprintf(name, "/dev_usb00%c/" __MKDEF_GAMES_DIR, 47 + curr_device);
+                mkdir_secure(name);
+                sprintf(name, "/dev_usb00%c/" __MKDEF_GAMES_DIR, 47 + curr_device);
+                mkdir_secure(name);
+                sprintf(name, "/dev_usb00%c/" __MKDEF_GAMES_DIR "/%s", 47 + curr_device, id);
+                mkdir_secure(name);
+            }
+
+            time_start = time(NULL);
+            abort_copy = 0;
+            DCls();
+            file_counter = 0;
+            new_pad = 0;
+
+            if(curr_device != 0) copy_mode = 1; // break files >= 4GB
+            else copy_mode = 0;
+
+            copy_is_split = 0;
+
+            my_game_copy((char *) "/dev_bdvd", (char *) name);
+
+            int seconds = (int) (time(NULL) - time_start);
+            int vflip = 0;
+
+            if(copy_is_split && !abort_copy)
+            {
+                if(curr_device == 0)
+                {
+                    if (!memcmp(hdd_folder,"dev_hdd0", 9))
+                        sprintf(filename, "/%s/" __MKDEF_GAMES_DIR "/_%s", hdd_folder, id);
+                    else if (!memcmp(hdd_folder, "GAMES", 6) || !memcmp(hdd_folder, "dev_hdd0_2", 11))
+                        sprintf(filename, "/%s/GAMES/_%s", "dev_hdd0", id);
+                    else
+                        sprintf(filename, "/dev_hdd0/game/%s/" __MKDEF_GAMES_DIR "/_%s", hdd_folder, id);
+                }
+                else
+                        sprintf(filename, "/dev_usb00%c/" __MKDEF_GAMES_DIR "/_%s", 47 + curr_device, id);
+
+                #ifdef PSDEBUG
+                ret =
+                #endif
+                sysLv2FsRename(name, filename);
+
+                if(curr_device == 0)
+                    sprintf(filename, language[GAMECPYSL_SPLITEDHDDNFO], id);
+                else
+                    sprintf(filename, language[GAMECPYSL_SPLITEDUSBNFO], id, 47 + curr_device);
+
+                dialog_action = 0;
+                msgDialogOpen2( mdialogok, filename, my_dialog2, (void*) 0x0000aaab, NULL );
+                wait_dialog();
+
+            }
+
+            while(true)
+            {
+                if(abort_copy)
+                    sprintf(string1,"%s  %s: %2.2i:%2.2i:%2.2i\n", language[GLUTIL_ABORTED], language[GLUTIL_TIME],
+                            seconds / 3600, (seconds/60) % 60, seconds % 60);
+                else
+                    sprintf(string1,"%s  %s: %2.2i:%2.2i:%2.2i Vol: %1.2f GB\n", language[GAMECPYSL_DONE], language[GLUTIL_TIME],
+                        seconds / 3600, (seconds/60) % 60, seconds % 60, ((double) global_device_bytes) / GIGABYTES);
+
+                cls2();
+
+                DbgHeader( string1);
+
+                if(vflip & 32)
+                    DbgMess(language[GLUTIL_XEXIT]);
+                else
+                    DbgMess("");
+
+                vflip++;
+
+                DbgDraw();
+
+                tiny3d_Flip();
+
+                if(ps3pad_poll())
+                {
+                   new_pad = 0;
+                   break;
+                }
+
+            }
+
+            if(abort_copy)
+            {
+                if(curr_device == 0)
+                    sprintf(filename, "%s\n\n%s HDD0?", id, language[GAMECPYSL_FAILDELDUMP]);
+                else
+                    sprintf(filename, "%s\n\n%s USB00%c?", id, language[GAMECPYSL_FAILDELDUMP], 47 + curr_device);
+
+                dialog_action = 0;
+                msgDialogOpen2(mdialogyesno, filename, my_dialog, (void*) 0x0000aaaa, NULL );
+
+                wait_dialog();
+
+                if(dialog_action == 1)
+                {
+                    time_start = time(NULL);
+                    file_counter = 0;
+                    abort_copy = 0;
+                    my_game_delete((char *) name);
+
+                    rmdir_secure((char *) name); // delete this folder
+
+                }
+                else
+                {
+                    if(curr_device == 0)
+                    {
+                        if(!memcmp(hdd_folder,"dev_hdd0", 9))
+                            sprintf(filename, "/%s/" __MKDEF_GAMES_DIR "/_%s", hdd_folder, id);
+                        else if (!memcmp(hdd_folder, "GAMES", 6) || !memcmp(hdd_folder, "dev_hdd0_2", 11))
+                            sprintf(filename, "/%s/GAMES/_%s", "dev_hdd0", id);
+                        else
+                            sprintf(filename, "/dev_hdd0/game/%s/" __MKDEF_GAMES_DIR "/_%s", hdd_folder, id);
+                    }
+                    else
+                        sprintf(filename, "/dev_usb00%c/" __MKDEF_GAMES_DIR "/_%s", 47 + curr_device, id);
+
+                    #ifdef PSDEBUG
+                    ret =
+                    #endif
+                    sysLv2FsRename(name, filename);
+
                 }
             }
         }
@@ -3543,37 +5236,38 @@ float cache_need_free = 0.0f;
 
 void copy_to_cache(int game_sel, char * hmanager_path)
 {
-    
+
     if(directories[game_sel].flags & D_FLAG_BDVD)  {return;}
     if(directories[game_sel].flags & D_FLAG_HDD0)  {return;}
 
     int n;
 
-    char name[0x420];
-    char name2[0x420];
+    char name[MAX_PATH_LEN];
+    char name2[MAX_PATH_LEN];
     int dest = 0;
 
     dialog_action = 0;
     abort_copy = 0;
 
-   
-    for(n = 1; n < 11; n++) {
+
+    for(n = 1; n < 11; n++)
+    {
        if((directories[game_sel].flags >> n) & 1) break;
     }
 
     if(n == 11) return;
 
     dest = n;
-      
+
     sprintf(filename, "%s\n\n%s USB00%c %s HDD0 CACHE?", directories[game_sel].title, language[GLUTIL_WANTCPYFROM], 47 + dest, language[GLUTIL_WTO]);
-        
+
     dialog_action = 0;
     msgDialogOpen2( mdialogyesno, filename, my_dialog, (void*)0x0000aaaa, NULL );
-            
+
     wait_dialog();
 
-    if(dialog_action == 1) {
-
+    if(dialog_action == 1)
+    {
         sprintf(name2, "%s/PS3_GAME", directories[game_sel].path_name);
 
         path_cache = name;
@@ -3581,19 +5275,18 @@ void copy_to_cache(int game_sel, char * hmanager_path)
         nfilecached = 0;
         filecached[nfilecached][0][0] = 0;
         filecached[nfilecached][1][0] = 0;
-  
-        // reset to update datas
-        
-        
+
+        // reset to update data
+
         time_start = time(NULL);
 
         abort_copy = 0;
-        initConsole();
+        DCls();
         file_counter = 0;
         new_pad = 0;
 
         //////////////
-        
+
         global_device_bytes = 0;
         cache_need_free = 0;
         num_directories = file_counter = num_files_big = num_files_split = fixed_self_sprx = 0;
@@ -3624,24 +5317,24 @@ void copy_to_cache(int game_sel, char * hmanager_path)
         u32 blockSize;
         u64 freeSize;
         float freeSpace;
-        float tmp_total_bytes = (global_device_bytes/ 1073741824.0); //save total bytes counted
+        float tmp_total_bytes = (global_device_bytes / GIGABYTES); //save total bytes counted
 
         sysFsGetFreeSize("/dev_hdd0/", &blockSize, &freeSize);
-        freeSpace = ( ((u64)blockSize * freeSize));
-        freeSpace = freeSpace / 1073741824.0;
+        freeSpace = ( ((u64)blockSize * freeSize) );
+        freeSpace = freeSpace / GIGABYTES;
 
         for(n = 0; n < nfilecached; n++)
             cache_need_free += filecached_bytes[n];
 
         global_device_bytes = cache_need_free; // update with correct value
 
-        cache_need_free = (cache_need_free / 1073741824.0) + 2.0f; // +2 for system
+        cache_need_free = (cache_need_free / GIGABYTES) + 2.0f; // +2 for system
 
         if(freeSpace < cache_need_free) {
             sprintf(string1, language[GAMECHCPY_NEEDMORESPACE], freeSpace, cache_need_free);
 
             DrawDialogOK(string1);
-            
+
             draw_cache_external();
 
             new_pad = 0;
@@ -3649,9 +5342,10 @@ void copy_to_cache(int game_sel, char * hmanager_path)
 
         sysFsGetFreeSize("/dev_hdd0/", &blockSize, &freeSize);
         freeSpace = ( ((u64)blockSize * freeSize));
-        freeSpace = freeSpace / 1073741824.0;
+        freeSpace = freeSpace / GIGABYTES;
 
-        if(freeSpace < cache_need_free) {
+        if(freeSpace < cache_need_free)
+        {
             sprintf(string1, language[GAMECHCPY_NOSPACE], freeSpace, cache_need_free);
 
             DrawDialogOK(string1);
@@ -3672,9 +5366,9 @@ void copy_to_cache(int game_sel, char * hmanager_path)
         sprintf(string1, language[GAMECHCPY_CACHENFOSTART], (cache_need_free - 2.0f), tmp_total_bytes, (tmp_total_bytes - (cache_need_free - 2.0f)) , freeSpace);
         DrawDialogOK(string1);
 
-        sprintf(name, "%s/cache", hmanager_path);	
+        sprintf(name, "%s/cache", hmanager_path);
         mkdir_secure(name);
-        sprintf(name, "%s/cache/%s", hmanager_path, directories[game_sel].title_id);	
+        sprintf(name, "%s/cache/%s", hmanager_path, directories[game_sel].title_id);
         mkdir_secure(name);
 
         copy_total_size = global_device_bytes;
@@ -3690,7 +5384,7 @@ void copy_to_cache(int game_sel, char * hmanager_path)
         file_counter = 0;
         copy_mode = 0;
 
-        copy_is_split=0;
+        copy_is_split = 0;
 
         copy_split_to_cache = 1;
         my_game_copy((char *) name2, (char *) name);
@@ -3698,19 +5392,15 @@ void copy_to_cache(int game_sel, char * hmanager_path)
 
         int seconds = (int) (time(NULL) - time_start);
         int vflip = 0;
-   
-        while(1) {
-            
-            if(abort_copy) {
 
-                sprintf(string1,"%s  %s: %2.2i:%2.2i:%2.2i\n", language[GLUTIL_ABORTED], language[GLUTIL_TIME], 
-                    seconds / 3600, (seconds/60) % 60, seconds % 60);
-            }
-            else {
-
-                sprintf(string1,"%s  %s: %2.2i:%2.2i:%2.2i Vol: %1.2f GB\n", language[GAMECPYSL_DONE], language[GLUTIL_TIME], 
-                    seconds / 3600, (seconds/60) % 60, seconds % 60, ((double) global_device_bytes) / (1024.0 * 1024. * 1024.0));
-            }
+        while(true)
+        {
+            if(abort_copy)
+                sprintf(string1,"%s  %s: %2.2i:%2.2i:%2.2i\n", language[GLUTIL_ABORTED], language[GLUTIL_TIME],
+                        seconds / 3600, (seconds/60) % 60, seconds % 60);
+            else
+                sprintf(string1,"%s  %s: %2.2i:%2.2i:%2.2i Vol: %1.2f GB\n", language[GAMECPYSL_DONE], language[GLUTIL_TIME],
+                        seconds / 3600, (seconds/60) % 60, seconds % 60, ((double) global_device_bytes) / GIGABYTES);
 
             cls2();
 
@@ -3722,98 +5412,95 @@ void copy_to_cache(int game_sel, char * hmanager_path)
                 DbgMess("");
 
             vflip++;
-                
+
             DbgDraw();
 
             tiny3d_Flip();
 
-            //pad_last_time = 0;
-            ps3pad_read();
-
-            if (new_pad & BUTTON_CROSS) {
-            
-                new_pad = 0;
-                break;
+            if(ps3pad_poll())
+            {
+               new_pad = 0;
+               break;
             }
 
         }
 
-        if(abort_copy || nfilecached ==0) {
-
-           
+        if(abort_copy || nfilecached  == 0)
+        {
             sprintf(filename, "%s\n\n%s USB00%c?", directories[game_sel].title, language[GAMECHCPY_FAILDELFROM], 47 + dest);
 
             dialog_action = 0;
-            
+
             msgDialogOpen2( mdialogyesno, filename, my_dialog, (void*) 0x0000aaaa, NULL );
-                    
+
             wait_dialog();
 
-            if(dialog_action == 1) {
-
+            if(dialog_action == 1)
+            {
                 abort_copy = 0;
                 time_start = time(NULL);
                 file_counter = 0;
 
                 my_game_delete((char *) name);
-    
+
                 rmdir_secure((char *) name); // delete this folder
 
                 game_sel = 0;
-
             }
-        } else {
-        
+        }
+        else
+        {
            sprintf(name, "%s/cache/%s/paths.dir", hmanager_path, directories[game_sel].title_id);
            SaveFile(name, (char *) filecached, 2048 * nfilecached);
            sprintf(name, "%s/cache/%s/name_entry", hmanager_path, directories[game_sel].title_id);
            SaveFile(name, (char *) directories[game_sel].title, 64);
         }
-        
+
     }
-	
+
 }
 ////////////////////
 void delete_game(int game_sel)
 {
-   
+
     int n;
 
     copy_split_to_cache = 0;
-    
+
     if(directories[game_sel].flags & D_FLAG_BDVD) return;
 
-    for(n = 0; n < 11; n++){
+    for(n = 0; n < 11; n++)
+    {
         if((directories[game_sel].flags >> n) & 1) break;
     }
 
-    if(n == 0)
-        sprintf(filename, "%s\n\n%s HDD0?", directories[game_sel].title, language[GAMEDELSL_WANTDELETE]); 
+    if(n == HDD0_DEVICE)
+        sprintf(filename, "%s\n\n%s HDD0?", directories[game_sel].title, language[GAMEDELSL_WANTDELETE]);
     else
-        sprintf(filename, "%s\n\n%s USB00%c?", directories[game_sel].title, language[GAMEDELSL_WANTDELETE], 47 + n); 
+        sprintf(filename, "%s\n\n%s USB00%c?", directories[game_sel].title, language[GAMEDELSL_WANTDELETE], 47 + n);
 
     dialog_action = 0;
-        
+
     msgDialogOpen2( mdialogyesno, filename, my_dialog, (void*) 0x0000aaaa, NULL );
-         
+
     wait_dialog();
-            
+
     // reset to update datas
     forcedevices = (1 << n);
 
     if(dialog_action == 1) {
 
         time_start = time(NULL);
-        
+
         abort_copy = 0;
-        initConsole();
+        DCls();
         file_counter = 0;
         new_pad = 0;
-      
+
         DPrintf("%s %s\n\n", language[GAMEDELSL_STARTED], directories[game_sel].path_name);
 
         my_game_delete((char *) directories[game_sel].path_name);
-        
+
         rmdir_secure((char *) directories[game_sel].path_name); // delete this folder
 
         game_sel = 0;
@@ -3821,17 +5508,14 @@ void delete_game(int game_sel)
         int seconds = (int) (time(NULL) - time_start);
         int vflip = 0;
 
-        while(1){
-
-            if(abort_copy) {
-
-                sprintf(string1,"%s  %s: %2.2i:%2.2i:%2.2i\n", language[GLUTIL_ABORTED], language[GLUTIL_TIME], 
-                    seconds / 3600, (seconds/60) % 60, seconds % 60);
-            }
-            else {
-                sprintf(string1,"%s  %s: %2.2i:%2.2i:%2.2i\n", language[GAMEDELSL_DONE], language[GLUTIL_TIME], 
-                    seconds / 3600, (seconds/60) % 60, seconds % 60);
-            }
+        while(true)
+        {
+            if(abort_copy)
+                sprintf(string1,"%s  %s: %2.2i:%2.2i:%2.2i\n", language[GLUTIL_ABORTED], language[GLUTIL_TIME],
+                        seconds / 3600, (seconds/60) % 60, seconds % 60);
+            else
+                sprintf(string1,"%s  %s: %2.2i:%2.2i:%2.2i\n", language[GAMEDELSL_DONE], language[GLUTIL_TIME],
+                        seconds / 3600, (seconds/60) % 60, seconds % 60);
 
             cls2();
 
@@ -3843,16 +5527,15 @@ void delete_game(int game_sel)
                 DbgMess("");
 
             vflip++;
-            
+
             DbgDraw();
 
             tiny3d_Flip();
 
-            ps3pad_read();
-            if (new_pad & BUTTON_CROSS) {
-
-                new_pad = 0;
-                break;
+            if(ps3pad_poll())
+            {
+               new_pad = 0;
+               break;
             }
         }
     }
@@ -3861,75 +5544,70 @@ void delete_game(int game_sel)
 
 void test_game(int game_sel)
 {
-   
+
     int r = 0;
 
-    time_start= time(NULL);
-			
-    abort_copy=0;
+    time_start = time(NULL);
+
+    abort_copy = 0;
 
     copy_split_to_cache = 0;
 
-    initConsole();
+    DCls();
 
     file_counter = 0;
     new_pad = 0;
-    
+
     global_device_bytes = 0;
 
     num_directories = file_counter = num_files_big = num_files_split = fixed_self_sprx = 0;
 
-    
+
     self_alarm_version = 0;
 
-    if(!(directories[game_sel].flags & D_FLAG_NTFS)) {
+    if(!(directories[game_sel].flags & D_FLAG_NTFS))
+    {
         my_game_test(directories[game_sel].path_name);
 
         r = self_alarm_version;
     }
 
-    char game_update[0x420];
+    char game_update_path[MAX_PATH_LEN];
 
-    sprintf(game_update, "/dev_hdd0/game/%c%c%c%c%s", directories[game_sel].title_id[0], directories[game_sel].title_id[1],
+    sprintf(game_update_path, "/dev_hdd0/game/%c%c%c%c%s", directories[game_sel].title_id[0], directories[game_sel].title_id[1],
             directories[game_sel].title_id[2], directories[game_sel].title_id[3], &directories[game_sel].title_id[5]);
     sysFSStat s;
 
     self_alarm_version = 0;
 
-    if(!sysLv2FsStat(game_update, &s)) {
+    if(!sysLv2FsStat(game_update_path, &s))
+        patch_error_09(game_update_path, !(old_pad & BUTTON_SELECT));
+    //else if((directories[game_sel].flags & (BDVD_FLAG | PS3_FLAG)) == (PS3_FLAG))
+    //    patch_error_09(directories[game_sel].path_name, 1);
 
-        patch_error_09(game_update);
-    }
-    
     DPrintf(language[GAMETSTSL_FINALNFO2], num_directories, file_counter, num_files_big, num_files_split);
     DPrintf("\n\n");
     DPrintf("SPRX/SELF fixed (error 0x80010009) %i", fixed_self_sprx);
     DPrintf("\n\n");
 
-    if(r) {
+    if(r)
         DPrintf("This game requires a higher CFW or rebuild the SELFs/SPRX\n\nEste juego requiere un CFW superior o reconstruir los SELFs/SPRX\n\n");
-    }
 
-    if(self_alarm_version) {
+    if(self_alarm_version)
         DPrintf("The update of this game requires a higher CFW or rebuild the SELFs/SPRX\n\nLa actualizacion de este juego requiere un CFW superior o reconstruir los SELFs/SPRX\n\n");
-    }
 
     int seconds = (int) (time(NULL) - time_start);
     int vflip = 0;
 
-    while(1){
-
-        if(abort_copy) {
-      
-            sprintf(string1,"%s  %s: %2.2i:%2.2i:%2.2i\n", language[GLUTIL_ABORTED], 
-                                language[GLUTIL_TIME], seconds / 3600, (seconds/60) % 60, seconds % 60);
-        }
-        else {
-           
-            sprintf(string1,"%s: %i %s: %2.2i:%2.2i:%2.2i Vol: %1.2f GB\n", language[GAMETSTSL_TESTED], file_counter, 
-                                language[GLUTIL_TIME], seconds / 3600, (seconds / 60) % 60, seconds % 60, 
-                                ((double) global_device_bytes) / (1024.0 * 1024.* 1024.0));
-        }
+    while(true)
+    {
+        if(abort_copy)
+            sprintf(string1,"%s  %s: %2.2i:%2.2i:%2.2i\n", language[GLUTIL_ABORTED],
+                    language[GLUTIL_TIME], seconds / 3600, (seconds/60) % 60, seconds % 60);
+        else
+            sprintf(string1,"%s: %i %s: %2.2i:%2.2i:%2.2i Vol: %1.2f GB\n", language[GAMETSTSL_TESTED], file_counter,
+                    language[GLUTIL_TIME], seconds / 3600, (seconds / 60) % 60, seconds % 60,
+                    ((double) global_device_bytes) / GIGABYTES);
 
         cls2();
 
@@ -3941,117 +5619,162 @@ void test_game(int game_sel)
             DbgMess("");
 
         vflip++;
-        
+
         DbgDraw();
 
         tiny3d_Flip();
 
-        ps3pad_read();
-        if (new_pad & BUTTON_CROSS) {
-
-            new_pad = 0;
-            break;
+        ps3pad_poll();
+        if(new_pad & (BUTTON_CIRCLE_ | BUTTON_TRIANGLE | BUTTON_CROSS_))
+        {
+           new_pad = 0;
+           break;
         }
     }
 
 
     // rename in test for non executable games
-    if(num_files_split && (directories[game_sel].flags & D_FLAG_USB)) {
-       
+    if(num_files_split && (directories[game_sel].flags & D_FLAG_USB))
+    {
         char *str = strstr(directories[game_sel].path_name, __MKDEF_GAMES_DIR);
 
-            if(str && str[7] != '_') {
-                int n = (str - directories[game_sel].path_name);
-                memcpy(filename, directories[game_sel].path_name, n + 7);filename[n+7] = '_'; filename[n+8] =0;
-                strcat(filename, str + 7);
-                sysLv2FsRename(directories[game_sel].path_name, filename);
-                //DrawDialogOK(filename);
-                forcedevices = D_FLAG_USB;
-            }
-    
+        if(str && str[7] != '_')
+        {
+            int n = (str - directories[game_sel].path_name);
+            memcpy(filename, directories[game_sel].path_name, n + 7);filename[n+7] = '_'; filename[n+8] =0;
+            strcat(filename, str + 7);
+            sysLv2FsRename(directories[game_sel].path_name, filename);
+            //DrawDialogOK(filename);
+            forcedevices = D_FLAG_USB;
+        }
     }
 }
 
 void DeleteDirectory(const char* path)
 {
-	int dfd;
-	u64 read;
-	sysFSDirent dir;
-    DIR_ITER *pdir = NULL;
-    struct stat st;
-    
-    int is_ntfs = 0; if(!strncmp(path, "/ntfs", 5) || !strncmp(path, "/ext", 4)) is_ntfs = 1;
+    char newpath[0x440];
+    sysFSDirent dir; u64 read = sizeof(sysFSDirent);
 
-	if ((!is_ntfs && sysLv2FsOpenDir(path, &dfd)) || (is_ntfs && (pdir = ps3ntfs_diropen(path)) == NULL))
-		return;
-    
-    if (!is_ntfs) sysFsChmod(path, FS_S_IFDIR | 0777);
-    
-    read = sizeof(sysFSDirent);
-	while ((!is_ntfs && !sysLv2FsReadDir(dfd, &dir, &read)) 
-        || (is_ntfs && ps3ntfs_dirnext(pdir, dir.d_name, &st) == 0)) {
-		char newpath[0x440];
-		if (!is_ntfs && !read)
-			break;
-		if (!strcmp(dir.d_name, ".") || !strcmp(dir.d_name, ".."))
-			continue;
+    bool is_ntfs = is_ntfs_path((char *) path);
 
-		strcpy(newpath, path);
-		strcat(newpath, "/");
-		strcat(newpath, dir.d_name);
-        
-        if(!is_ntfs) {
-            if (dir.d_type & DT_DIR) {
+    if (!is_ntfs)
+    {
+        int dfd;
+
+        if (sysLv2FsOpenDir(path, &dfd)) return;
+
+        sysFsChmod(path, FS_S_IFDIR | 0777);
+
+        read = sizeof(sysFSDirent);
+        while (!sysLv2FsReadDir(dfd, &dir, &read))
+        {
+            if (!read) break;
+
+            if(dir.d_name[0]=='.' && (dir.d_name[1]==0 || dir.d_name[1]=='.')) continue;
+
+            sprintf(newpath, "%s/%s", path, dir.d_name);
+
+            if (dir.d_type & DT_DIR)
+            {
                 DeleteDirectory(newpath);
                 sysLv2FsChmod(newpath, FS_S_IFDIR | 0777);
                 sysLv2FsRmdir(newpath);
-            } else {
+            }
+            else
+            {
                 sysLv2FsChmod(path, FS_S_IFMT | 0777);
                 sysLv2FsUnlink(newpath);
             }
-        } else {
-            if (S_ISDIR(st.st_mode)) {
+        }
+
+        sysLv2FsCloseDir(dfd);
+    }
+    else
+    {
+        struct stat st;
+        DIR_ITER *pdir = NULL;
+
+        if ((pdir = ps3ntfs_diropen(path)) == NULL) return;
+
+        while (ps3ntfs_dirnext(pdir, dir.d_name, &st) == 0)
+        {
+            if(dir.d_name[0]=='.' && (dir.d_name[1]==0 || dir.d_name[1]=='.')) continue;
+
+            sprintf(newpath, "%s/%s", path, dir.d_name);
+
+            if (S_ISDIR(st.st_mode))
+            {
                 DeleteDirectory(newpath);
             }
+
             ps3ntfs_unlink(newpath);
         }
-	}
-	
-    if(is_ntfs) ps3ntfs_dirclose(pdir); else sysLv2FsCloseDir(dfd);
+
+        ps3ntfs_dirclose(pdir);
+    }
 }
 
-void FixDirectory(const char* path)
+int FixDirectory(const char* path, int fcount)
 {
-	int dfd;
-	u64 read;
-	sysFSDirent dir;
-    
-	if (sysLv2FsOpenDir(path, &dfd))
-		return;
+    int dfd;
+    u64 read;
+    sysFSDirent dir;
+
+    if (sysLv2FsOpenDir(path, &dfd)) return FAILED;
 
     sysFsChmod(path, FS_S_IFDIR | 0777);
 
+    if (fcount == 0)
+    {
+        msgDialogOpen2(mdialogprogress, progress_bar_title, progress_callback, (void *) 0xadef0045, NULL);
+        msgDialogProgressBarReset(MSG_PROGRESSBAR_INDEX0);
+    }
+
     read = sizeof(sysFSDirent);
-	while (!sysLv2FsReadDir(dfd, &dir, &read)) {
-		char newpath[0x440];
-		if (!read)
-			break;
-		if (!strcmp(dir.d_name, ".") || !strcmp(dir.d_name, ".."))
-			continue;
+    while (!sysLv2FsReadDir(dfd, &dir, &read) && (fcount >=0))
+    {
+        if (!read)
+            break;
+        if (!strcmp(dir.d_name, ".") || !strcmp(dir.d_name, ".."))
+            continue;
 
-		strcpy(newpath, path);
-		strcat(newpath, "/");
-		strcat(newpath, dir.d_name);
+        char newpath[0x440];
+        strcpy(newpath, path);
+        strcat(newpath, "/");
+        strcat(newpath, dir.d_name);
 
-		if (dir.d_type & DT_DIR) {
+        fcount++;
 
-			FixDirectory(newpath);
-          
-		} else {
-			sysLv2FsChmod(newpath, FS_S_IFMT | 0777);
-		}
-	}
-	sysLv2FsCloseDir(dfd);
+        if ((fcount & 4) == 4)
+        {
+            static char string1[256];
+            msgDialogProgressBarReset(MSG_PROGRESSBAR_INDEX0);
+
+            sprintf(string1, "Fixing permissions: %s", dir.d_name);
+            msgDialogProgressBarSetMsg(MSG_PROGRESSBAR_INDEX0, string1);
+
+            //estimated progress bar (just to show some progress)
+            bar1_countparts = 10 * fcount / (5 * fcount + 100);
+            msgDialogProgressBarInc(MSG_PROGRESSBAR_INDEX0, (u32) bar1_countparts);
+
+            DbgDraw();
+            tiny3d_Flip();
+        }
+
+        if(ps3pad_poll()) return FAILED;
+
+        if (dir.d_type & DT_DIR)
+        {
+            if(FixDirectory(newpath, fcount) == FAILED) {sysLv2FsCloseDir(dfd); return FAILED;}
+        }
+        else
+        {
+            sysLv2FsChmod(newpath, FS_S_IFMT | 0777);
+        }
+    }
+
+    sysLv2FsCloseDir(dfd);
+    return SUCCESS;
 }
 
 /*******************************************************************************************************************************************************/
@@ -4068,21 +5791,22 @@ void FixDirectory(const char* path)
    max_tracksize = getConfigValueInt(chFileName, "file", "max_track_size", 6144-154);
 */
 
-#if 0
 int getConfigMemValueInt (char* mem, int size, char* pchSection, char* pchKey, int iDefaultValue)
 {
-   
+
    char chLine[MAX_CFGLINE_LEN + 1];
    char* pchToken;
    int n = 0;
 
-      while(n<size) { // grab one line
-        
+      while(n < size)
+      {
+        // grab one line
         int flag = 0;
         int m = 0;
-        while(mem && n<size && m<MAX_CFGLINE_LEN-1) {
+        while(mem && n < size && m<MAX_CFGLINE_LEN-1)
+        {
             chLine[m] = mem[n]; n++;
-            if(chLine[m]=='\n' || chLine[m]=='\r') {m++; flag = 1; continue;}
+            if(chLine[m] == '\n' || chLine[m] == '\r') {m++; flag = 1; continue;}
             if(flag) {n--;break;}
             m++;
         }
@@ -4090,15 +5814,16 @@ int getConfigMemValueInt (char* mem, int size, char* pchSection, char* pchKey, i
         chLine[m]= 0;  // grab one line
          pchToken = strtok(chLine, "[]"); // check if there's a section key
          if((pchToken != NULL) && (pchToken[0] != '#') && (strcmp(pchToken, pchSection) == 0)) {
-            while(n<size) { // get the next line
-                m = 0; flag = 0;
-                while(mem && n<size && m<MAX_CFGLINE_LEN-1) {
+            while(n < size) { // get the next line
+               m = 0; flag = 0;
+               while(mem && n < size && m < MAX_CFGLINE_LEN - 1)
+               {
                     chLine[m] = mem[n]; n++;
-                    if(chLine[m]=='\n' || chLine[m]=='\r') {m++; flag = 1; continue;}
+                    if(chLine[m] == '\n' || chLine[m] == '\r') {m++; flag = 1; continue;}
                     if(flag) {n--;break;}
                     m++;
-                }
-                chLine[m]= 0;
+               }
+               chLine[m]= 0;
                pchToken = strtok(chLine, "\t =\n\r"); // check if it has a key=value pair
                if((pchToken != NULL) && (pchToken[0] != '#') && (strcmp(pchToken, pchKey) == 0)) {
                   char* pchPtr = strtok(NULL, "\t =#\n\r"); // get the value if it matches our key
@@ -4114,7 +5839,6 @@ int getConfigMemValueInt (char* mem, int size, char* pchSection, char* pchKey, i
 
    return iDefaultValue; // no value found
 }
-#endif
 
 /*
    Ex:
@@ -4129,175 +5853,195 @@ void reverse_strings(u8 *str)
     int len1, len2;
     u32 string_buffer[1024];
 
-    while(1) {
-        if(*str==0) break;
+    while(true)
+    {
+        if(*str == 0) break;
         while(*str < 32) str++;
-        if(*str==0) break;
+        if(*str == 0) break;
 
         len1 = 0; len2 =0;
         // process one phrase
-        while(str[len1]>=32) {
-
-            if((str[len1] & 0xE0) == 0xC0 && (str[len1 + 1] & 0xc0) == 0x80) {
-                string_buffer[len2] = ((u32) str[len1 + 1] << 8) | (u32) str[len1 + 0]; len1+=2; len2++;
-            } else if((str[len1] & 0xF0) == 0xE0  && (str[len1 + 1] & 0xc0) == 0x80 && (str[len1 + 2] & 0xc0) == 0x80) {
-                string_buffer[len2] = ((u32) str[len1 + 2] << 16) | ((u32) str[len1 + 1] << 8) | (u32) str[len1 + 0]; len1+=3; len2++;
-            } else if((str[len1] & 0xF0) == 0xF0  && (str[len1 + 1] & 0xc0) == 0x80  && (str[len1 + 2] & 0xc0) == 0x80  && (str[len1 + 3] & 0xc0) == 0x80) {
-                string_buffer[len2] = ((u32) str[len1 + 3] << 24) | ((u32) str[len1 + 2] << 16) | ((u32) str[len1 + 1] << 8) | (u32) str[len1 + 0]; len1+=4; len2++;
-            } else 
-                {if(str[len1 + 0] & 0x80)  string_buffer[len2] = '?'; else string_buffer[len2] = (u32) str[len1 + 0];
+        while(str[len1]>=32)
+        {
+            if((str[len1] & 0xE0) == 0xC0 && (str[len1 + 1] & 0xc0) == 0x80)
+            {
+                string_buffer[len2] = ((u32) str[len1 + 1] << 8) | (u32) str[len1 + 0];
+                len1+=2; len2++;
+            }
+            else if((str[len1] & 0xF0) == 0xE0  && (str[len1 + 1] & 0xc0) == 0x80 && (str[len1 + 2] & 0xc0) == 0x80)
+            {
+                string_buffer[len2] = ((u32) str[len1 + 2] << 16) | ((u32) str[len1 + 1] << 8) | (u32) str[len1 + 0];
+                len1+=3; len2++;
+            }
+            else if((str[len1] & 0xF0) == 0xF0  && (str[len1 + 1] & 0xc0) == 0x80  && (str[len1 + 2] & 0xc0) == 0x80  && (str[len1 + 3] & 0xc0) == 0x80)
+            {
+                string_buffer[len2] = ((u32) str[len1 + 3] << 24) | ((u32) str[len1 + 2] << 16) | ((u32) str[len1 + 1] << 8) | (u32) str[len1 + 0];
+                len1+=4; len2++;
+            }
+            else
+            {
+                if(str[len1 + 0] & 0x80)  string_buffer[len2] = '?'; else string_buffer[len2] = (u32) str[len1 + 0];
                 len1++; len2++;
-                }
-            
+            }
         }
 
-        
-        l= 0;
-       
+        l = 0;
+
         len2--;
-        for(n=0; n<len2 + 1; n++) {
-        
+        for(n = 0; n < len2 + 1; n++)
+        {
             // reverse UTF8 symbols
-            if(string_buffer[len2 - n] == 32   || (string_buffer[len2 - n] & 0xffffff80)) {
-                str[l]= string_buffer[len2 - n] & 0xff; string_buffer[len2 - n]>>= 8;l++;
-                if(string_buffer[len2 - n] & 0xff) {
-                    str[l]= string_buffer[len2 - n] & 0xff; string_buffer[len2 - n]>>= 8;l++;
-                    if(string_buffer[len2 - n] & 0xff) {
-                        str[l]= string_buffer[len2 - n] & 0xff; string_buffer[len2 - n]>>= 8;l++;
-                        if(string_buffer[len2 - n] & 0xff) {
-                            str[l]= string_buffer[len2 - n] & 0xff;l++;
+            if(string_buffer[len2 - n] == 32   || (string_buffer[len2 - n] & 0xffffff80))
+            {
+                str[l] = string_buffer[len2 - n] & 0xff; string_buffer[len2 - n]>>= 8;l++;
+                if(string_buffer[len2 - n] & 0xff)
+                {
+                    str[l] = string_buffer[len2 - n] & 0xff; string_buffer[len2 - n]>>= 8;l++;
+                    if(string_buffer[len2 - n] & 0xff)
+                    {
+                        str[l] = string_buffer[len2 - n] & 0xff; string_buffer[len2 - n]>>= 8;l++;
+                        if(string_buffer[len2 - n] & 0xff)
+                        {
+                            str[l] = string_buffer[len2 - n] & 0xff;
+                            l++;
                         }
                     }
                 }
-            } else {
-
+            }
+            else
+            {
                 // dont reverse words with symbols from 32 to 127 UTF8
                 int s;
                 m= 0;
-                while((m+n) < (len2 + 1) && (string_buffer[len2 - n - m] & 0xff) > 32
-                    && (string_buffer[len2 - n - m] & 0xffffff80) == 0) m++;
-                
-                for(s = 0; s < m; s++) {
-                    str[l + m - s - 1]= string_buffer[len2 - n - s] & 0xff;
+                while((m+n) < (len2 + 1) && (string_buffer[len2 - n - m] & 0xff) > 32 &&
+                      (string_buffer[len2 - n - m] & 0xffffff80) == 0) m++;
+
+                for(s = 0; s < m; s++)
+                {
+                    str[l + m - s - 1] = string_buffer[len2 - n - s] & 0xff;
                 }
                 l += m;
                 n += m - 1;
             }
         }
 
-        str+= len1;
-
-
+        str += len1;
     }
-
 }
 
 void convertStringEndl(char* string, int iSize);
 
 extern int reverse_language;
 
-int getConfigMemValueString (char* mem, int size, char* pchSection, char* pchKey, char* pchValue, int iSize, char* pchDefaultValue)
+int getConfigMemValueString(char* mem, int size, char* pchSection, char* pchKey, char* pchValue, int iSize, char* pchDefaultValue)
 {
-   
+
    char chLine[MAX_CFGLINE_LEN + 1];
    int n = 0;
    int find_section = 0;
 
-     // open the config file
+   // open the config file
 
-     while(n<size) {
-        if(mem[n]=='[') break;
-        n++;
-     }
+   while(n < size)
+   {
+      if(mem[n] == '[') break;
+      n++;
+   }
 
-      while(n<size) { // grab one line
-        
-        int flag = 0;
-        int m = 0, l;
-        while(mem && n<size && m<MAX_CFGLINE_LEN-1) {
-            chLine[m] = mem[n]; n++;
-            if(chLine[m]=='\n' || chLine[m]=='\r') {m++; flag = 1; continue;}
-            if(flag) {n--;break;}
-            m++;
-        }
-        chLine[m]= 0;
+   while(n<size)
+   {
+       // grab one line
+       int flag = 0;
+       int m = 0, l;
+       while(mem && n < size && m < MAX_CFGLINE_LEN - 1)
+       {
+           chLine[m] = mem[n]; n++;
+           if(chLine[m] == '\n' || chLine[m] == '\r') {m++; flag = 1; continue;}
+           if(flag) {n--; break;}
+           m++;
+       }
+       chLine[m]= 0;
 
-        // note from Estwald
-        // routines to avoid the stupid strok() "break-lines" function. XD
-        // standard function is not the better way to get custom strings
+       // note from Estwald
+       // routines to avoid the stupid strok() "break-lines" function. XD
+       // standard function is not the better way to get custom strings
 
-        m = 0; while (chLine[m]==' ' || chLine[m]=='\t') m++; // skip spaces and tabs
-        if(chLine[m]=='#') continue; // skip comment. Next line
+       m = 0; while (chLine[m] == ' ' || chLine[m] == '\t') m++; // skip spaces and tabs
+       if(chLine[m] == '#') continue; // skip comment. Next line
 
-        if(chLine[m]=='[') { // section token finded
-            if(find_section) break; // this is another different section, sure 
-            
-            m++;
-            l = m;
+       if(chLine[m] == '[')
+       {
+           // section token finded
+           if(find_section) break; // this is another different section, sure
 
-            while (chLine[l]!=']' && chLine[l]!=0) l++;
+           m++;
+           l = m;
 
-            if(chLine[l]!=']') break;  // section error!!!
+           while (chLine[l]!=']' && chLine[l]!=0) l++;
 
-            // test if section do not match
-            if(strlen(pchSection) != (l-m) || strncmp(pchSection, &chLine[m], l-m)) continue;
-            find_section = 1;
-        }
+           if(chLine[l]!=']') break;  // section error!!!
 
-        if(find_section) {// get strings
+           // test if section do not match
+           if(strlen(pchSection) != (l - m) || strncmp(pchSection, &chLine[m], l - m)) continue;
+           find_section = 1;
+       }
 
+       if(find_section)
+       {
+           // get strings
 
-            // find string to compare
-            l = m; while (chLine[l]!='=' && chLine[l]!=' ' && chLine[l]!='\t' && chLine[l]!=0) l++;
+           // find string to compare
+           l = m; while (chLine[l] != '=' && chLine[l] != ' ' && chLine[l] != '\t' && chLine[l] != 0) l++;
 
-            if(chLine[l]==0) continue; // no match, error in line?. Next line
+           if(chLine[l] == 0) continue; // no match, error in line?. Next line
 
-            if((l-m) < 4) continue; // invalid, sure (string too short). Next line
+           if((l-m) < 4) continue; // invalid, sure (string too short). Next line
 
-            if(strlen(pchKey) != (l-m) || strncmp(pchKey, &chLine[m], l-m)) continue;// no match. Next line
+           if(strlen(pchKey) != (l - m) || strncmp(pchKey, &chLine[m], l - m)) continue;// no match. Next line
 
-            if(chLine[l]!='=') while (chLine[l]==' ' || chLine[l]=='\t') l++; // skip shit spaces
+           if(chLine[l]!='=') while (chLine[l] == ' ' || chLine[l] == '\t') l++; // skip spaces
 
-            if(chLine[l]!='=') continue;// no match. Next line (string can be valid, but you need find '=')
+           if(chLine[l]!='=') continue;// no match. Next line (string can be valid, but you need find '=')
 
-            m= l + 1; // skip '='
-            while (chLine[m]==' ' || chLine[m]=='\t') m++; // skip spaces and tabs (more shit)
+           m = l + 1; // skip '='
+           while (chLine[m] == ' ' || chLine[m] == '\t') m++; // skip spaces and tabs
 
-            l=m; while(chLine[l]!=0 && chLine[l]!='\n' && chLine[l]!='\r') l++; // find the end of line
+           l=m; while(chLine[l]!=0 && chLine[l]!='\n' && chLine[l]!='\r') l++; // find the end of line
 
-            chLine[l]=0; // break line to avoid \n \r
+           chLine[l] = 0; // break line to avoid \n \r
 
-            // &chLine[m] countain the replacement string without string splitted ;)
+           // &chLine[m] countain the replacement string without string splitted ;)
 
-            convertStringEndl(&chLine[m], iSize);
-            strncpy(pchValue, &chLine[m], iSize); // copy to destination
+           convertStringEndl(&chLine[m], iSize);
+           strncpy(pchValue, &chLine[m], iSize); // copy to destination
 
-            pchValue[iSize -1] = 0;
-            
-            if(reverse_language) {
-                if(pchValue[0]=='-') { // don't reverse this string
-                    strncpy(pchValue, &chLine[m + 1], iSize);
-                    pchValue[iSize -1] = 0;
-                } else
-                    reverse_strings((u8*) pchValue);
-            }
+           pchValue[iSize -1] = 0;
 
-            return 0;
+           if(reverse_language)
+           {
+               if(pchValue[0] == '-')
+               {
+                   // don't reverse this string
+                   strncpy(pchValue, &chLine[m + 1], iSize);
+                   pchValue[iSize - 1] = 0;
+               }
+               else
+                   reverse_strings((u8*) pchValue);
+           }
 
-         }
-      }
-     
-   
+           return SUCCESS;
+       }
+   }
+
    strncpy(pchValue, pchDefaultValue, iSize); // no value found, return the default
    pchValue[iSize -1] = 0;
-   return 1;
-
+   return FAILED;
 }
 
 #define MAX_CONVERSIONS 1
 
-char conversionTable[MAX_CONVERSIONS][2] = 
-{ 
+char conversionTable[MAX_CONVERSIONS][2] =
+{
     { '@', '\n' },
    // { '_', ' ' },
 };
@@ -4315,7 +6059,7 @@ void convertStringEndl(char* string, int iSize)
         // special symbol '_' used as space when it is concatenated
         if(string[m] == '_') {
             if(flag || string[m + 1] == '_') {flag = 1; string[m]=' ';}
-        }    
+        }
         else flag = 0;
 
         for(n = 0; n < MAX_CONVERSIONS; n++)
@@ -4342,15 +6086,20 @@ void LoadFavourites(char * path, int mode)
     int n, mode_flag;
     tfavourites2 * pfavourites = NULL;
 
-    if(mode == GAMEBASE_MODE) {
+    if(mode == GAMEBASE_MODE)
+    {
         pfavourites = &favourites_gamebase;
         mode_flag = 0;
         strcat(path, "favourites.bin");
-    } else if(mode == HOMEBREW_MODE) {
+    }
+    else if(mode == HOMEBREW_MODE)
+    {
         pfavourites = &favourites_homebrew;
         mode_flag = 0xffff0000;
         strcat(path, "favourites2.bin");
-    } else {
+    }
+    else
+    {
         pfavourites = &favourites_films;
         mode_flag = 0xffff0000;
         strcat(path, "favourites3.bin");
@@ -4361,7 +6110,8 @@ void LoadFavourites(char * path, int mode)
     int file_size;
     char *file = LoadFile(path, &file_size);
 
-    if(file) {
+    if(file)
+    {
         tfavourites2 *fav = (tfavourites2 *) file;
         if(file_size == sizeof(tfavourites) && fav->version == 100)
             memcpy(pfavourites, file, sizeof(tfavourites));
@@ -4370,7 +6120,8 @@ void LoadFavourites(char * path, int mode)
         free(file);
     }
 
-    for(n = 0; n < 32; n++) {
+    for(n = 0; n < 48; n++)
+    {
         pfavourites->list[n].index  = -1;
         pfavourites->list[n].flags &=  mode_flag;
     }
@@ -4380,15 +6131,18 @@ void LoadFavourites(char * path, int mode)
 void SaveFavourites(char * path, int mode)
 {
     favourites.version = 101;
-    if(mode == GAMEBASE_MODE) {
+    if(mode == GAMEBASE_MODE)
+    {
         strcat(path, "favourites.bin");
-        favourites_gamebase =favourites;
+        favourites_gamebase = favourites;
     }
-    else if (mode == HOMEBREW_MODE) {
+    else if (mode == HOMEBREW_MODE)
+    {
         strcat(path, "favourites2.bin");
-        favourites_homebrew =favourites;
-    } else return;
-      
+        favourites_homebrew = favourites;
+    }
+    else return;
+
     SaveFile(path, (void *) &favourites, sizeof(favourites)); // use favourites_gamebase?
 }
 
@@ -4405,7 +6159,7 @@ void GetFavourites(int mode)
 void SetFavourites(int mode)
 {
     if(mode > HOMEBREW_MODE)
-        favourites = favourites_films;
+        favourites_films = favourites;
     else if(mode == HOMEBREW_MODE)
         favourites_homebrew = favourites;
     else
@@ -4418,37 +6172,41 @@ void UpdateFavourites(t_directories *list, int nlist)
 
     havefavourites = 0;
 
-    for(m = 0; m < scr_grid_games; m++) {
+    for(m = 0; m < num_box; m++)
+    {
         favourites.list[m].index = -1;
 
-        for(n = 0; n < nlist; n++) {
-            if(favourites.list[m].title_id[0] !=0 && !strncmp(list[n].title_id, favourites.list[m].title_id, 64)) {
-                if((/*1*/ favourites.list[m].index < 0) || 
-                    /*2*/((favourites.list[m].flags & D_FLAG_NTFS) != D_FLAG_NTFS && 
-                    ((favourites.list[m].flags & GAMELIST_FILTER) > (list[n].flags & GAMELIST_FILTER) 
-                    || (list[n].flags & D_FLAG_NTFS) == D_FLAG_NTFS)) ||
-                    /*3*/((favourites.list[m].flags & D_FLAG_NTFS) == D_FLAG_NTFS && (list[n].flags & D_FLAG_HDD0) == D_FLAG_HDD0)) {
+        for(n = 0; n < nlist; n++)
+        {
+            if(favourites.list[m].title_id[0] !=0 && !strncmp(list[n].title_id, favourites.list[m].title_id, 64))
+            {
+                if((/*1*/ favourites.list[m].index < 0) ||
+                    /*2*/((favourites.list[m].flags & NTFS_FLAG) != NTFS_FLAG &&
+                    ((favourites.list[m].flags & GAMELIST_FILTER) > (list[n].flags & GAMELIST_FILTER)
+                    || (list[n].flags & NTFS_FLAG) == NTFS_FLAG)) ||
+                    /*3*/((favourites.list[m].flags & NTFS_FLAG) == NTFS_FLAG && (list[n].flags & D_FLAG_HDD0) == D_FLAG_HDD0))
+                {
                     //strncpy(favourites.list[m].title_id, list[n].title_id, 64);
                     //strncpy(favourites.list[m].title, list[n].title, 64);
                     favourites.list[m].index = n;
                     favourites.list[m].flags = list[n].flags;
                     havefavourites = 1;
-                } 
+                }
             }
         }
     }
-
 }
 
 
 int TestFavouritesExits(char *id)
 {
     int m;
-    for(m = 0; m < 32; m++) {
-        if(!strncmp(favourites.list[m].title_id, id, 64)) return 1;
+    for(m = 0; m < 48; m++)
+    {
+        if(!strncmp(favourites.list[m].title_id, id, 64)) return true;
     }
 
-    return 0;
+    return false;
 }
 
 void AddFavourites(int indx, t_directories *list, int position_list)
@@ -4458,42 +6216,45 @@ void AddFavourites(int indx, t_directories *list, int position_list)
     favourites.list[indx].index = position_list;
     favourites.list[indx].flags = list[position_list].flags;
     havefavourites = 1;
-
 }
 
-int DeleteFavouritesIfExits(char *id)
+void DeleteFavouritesIfExits(char *id)
 {
     int m;
-    for(m = 0; m < 32; m++) {
-        if(!strcmp(favourites.list[m].title_id, id)) {
+    for(m = 0; m < 48; m++)
+    {
+        if(!strcmp(favourites.list[m].title_id, id))
+        {
             memset(favourites.list[m].title_id, 0, 64);
             memset(favourites.list[m].title, 0, 64);
             favourites.list[m].index = -1;
         }
     }
-    
+
     havefavourites = 0;
 
-    for(m = 0; m < 32; m++) {
-        if(favourites.list[m].index >= 0) havefavourites = 1;
+    for(m = 0; m < 48; m++)
+    {
+        if(favourites.list[m].index >= 0) {havefavourites = 1; break;}
     }
 
-    return 0;
+    return;
 }
 
 int param_sfo_util(char * path, int patch_app)
 {
-    int patched = 0;
-	Lv2FsFile fd;
+    bool patched = false;
+
+    Lv2FsFile fd;
     u64 bytes;
     u64 position = 0LL;
-    char file[0x420];
-    char file2[0x420];
+    char file[MAX_PATH_LEN];
+    char file2[MAX_PATH_LEN];
 
     u8 * app_ver = NULL;
 
     char str_version[8];
-    
+
     unsigned char *mem = NULL;
     unsigned char *mem2 = NULL;
 
@@ -4505,7 +6266,7 @@ int param_sfo_util(char * path, int patch_app)
     char *v = strstr(version, "release:");
 
     if(v) {memcpy(str_version, v + 8, 7); str_version[7] = 0;}
-    
+
     free(version);
 
     if(!v) return -3;
@@ -4513,124 +6274,123 @@ int param_sfo_util(char * path, int patch_app)
 
     sprintf(file, "%s/PS3_GAME/PARAM.SFO", path);
     sprintf(file2, "%s/PS3_GAME/_PARAM.SFO", path);
-	
-    if(!sysLv2FsOpen(file2, 0, &fd, S_IRWXU | S_IRWXG | S_IRWXO, NULL, 0)) {
-		unsigned len, pos, str;
-		
+
+    if(!sysLv2FsOpen(file2, 0, &fd, S_IREAD | S_IRGRP | S_IROTH, NULL, 0))
+    {
+        unsigned len, pos, str;
 
         sysLv2FsLSeek64(fd, 0, 2, &position);
-		len = (u32) position;
+        len = (u32) position;
 
-		mem2 = (unsigned char *) malloc(len+16);
-		if(!mem2) {sysLv2FsClose(fd); return -2;}
+        mem2 = (unsigned char *) malloc(len + 16);
+        if(!mem2) {sysLv2FsClose(fd); return -2;}
 
-		memset(mem2, 0, len+16);
+        memset(mem2, 0, len + 16);
 
-		sysLv2FsLSeek64(fd, 0, 0, &position);
-		
-        if(sysLv2FsRead(fd, mem2, len, &bytes)!=0) bytes =0LL;
+        sysLv2FsLSeek64(fd, 0, 0, &position);
+
+        if(sysLv2FsRead(fd, mem2, len, &bytes) != 0) bytes = 0LL;
 
         len = (u32) bytes;
 
-		sysLv2FsClose(fd);
+        sysLv2FsClose(fd);
 
-		str= (mem2[8]+(mem2[9]<<8));
-		pos=(mem2[0xc]+(mem2[0xd]<<8));
+        str = (mem2[8] + (mem2[9]<<8));
+        pos = (mem2[0xc] + (mem2[0xd]<<8));
 
-		int indx=0;
+        int indx = 0;
 
-		while(str<len) {
-			if(mem2[str]==0) break;
-			
-			
+        while(str < len)
+        {
+            if(mem2[str] == 0) break;
 
-            if(!strcmp((char *) &mem2[str], "APP_VER")) {
-               
-				app_ver = &mem2[pos];
-                
-			}
+            if(!strcmp((char *) &mem2[str], "APP_VER")) app_ver = &mem2[pos];
 
-			while(mem2[str]) str++;str++;
-			pos+=(mem2[0x1c+indx]+(mem2[0x1d+indx]<<8));
-			indx+=16;
-		}
-    
+            while(mem2[str] && str < len) str++; str++;
+            pos += (mem2[0x1c + indx] + (mem2[0x1d + indx]<<8));
+            indx += 16;
+        }
+
     }
 
-    n = sysLv2FsOpen(file, 0, &fd, S_IRWXU | S_IRWXG | S_IRWXO, NULL, 0);
-    
-    if(n) {n = sysLv2FsOpen(file2, 0, &fd, S_IRWXU | S_IRWXG | S_IRWXO, NULL, 0); patched = 1;}
+    n = sysLv2FsOpen(file, 0, &fd, S_IREAD | S_IRGRP | S_IROTH, NULL, 0);
 
-	if(!n) {
-		unsigned len, pos, str;
-		
+    if(n) {n = sysLv2FsOpen(file2, 0, &fd, S_IREAD | S_IRGRP | S_IROTH, NULL, 0); patched = true;}
+
+    if(!n)
+    {
+        unsigned len, pos, str;
 
         sysLv2FsLSeek64(fd, 0, 2, &position);
-		len = (u32) position;
+        len = (u32) position;
 
-		mem = (unsigned char *) malloc(len+16);
-		if(!mem) {sysLv2FsClose(fd); return -2;}
+        mem = (unsigned char *) malloc(len + 16);
+        if(!mem) {sysLv2FsClose(fd); return -2;}
 
-		memset(mem, 0, len+16);
+        memset(mem, 0, len + 16);
 
-		sysLv2FsLSeek64(fd, 0, 0, &position);
-		
-        if(sysLv2FsRead(fd, mem, len, &bytes)!=0) bytes =0LL;
+        sysLv2FsLSeek64(fd, 0, 0, &position);
+
+        if(sysLv2FsRead(fd, mem, len, &bytes) != 0) bytes = 0LL;
 
         len = (u32) bytes;
 
-		sysLv2FsClose(fd);
+        sysLv2FsClose(fd);
 
-		str= (mem[8]+(mem[9]<<8));
-		pos=(mem[0xc]+(mem[0xd]<<8));
+        str = (mem[8] + (mem[9]<<8));
+        pos = (mem[0xc] + (mem[0xd]<<8));
 
-		int indx=0;
+        int indx = 0;
 
-		while(str<len) {
-			if(mem[str]==0) break;
-			
-			if(!strcmp((char *) &mem[str], "PS3_SYSTEM_VER")) {
-				if(strcmp((char *) &mem[pos], str_version) > 0) {
+        while(str < len)
+        {
+            if(mem[str] == 0) break;
+
+            if(!strcmp((char *) &mem[str], "PS3_SYSTEM_VER"))
+            {
+                if(strcmp((char *) &mem[pos], str_version) > 0)
+                {
                     memcpy(&mem[pos], str_version, 8);
-                    patched = 1;
+                    patched = true;
                 }
-			}
-
-            if(!strcmp((char *) &mem[str], "APP_VER")) {
+            }
+            else
+            if(!strcmp((char *) &mem[str], "APP_VER"))
+            {
                u8 old =  mem[pos + 1];
-               
-               if(app_ver) {
-                    
+
+               if(app_ver)
+               {
                    mem[pos + 1] = app_ver[1];
                    if(mem[pos + 1] == '9') mem[pos + 1] = '1';
                } else mem[pos + 1] = '1';
-                
-               if(patch_app) {
-				    mem[pos + 1] = '9';
+
+               if(patch_app)
+               {
+                    mem[pos + 1] = '9';
                }
 
-               if(old != mem[pos + 1]) patched = 1;
-			}
+               if(old != mem[pos + 1]) patched = true;
+            }
 
-			while(mem[str]) str++;str++;
-			pos+=(mem[0x1c+indx]+(mem[0x1d+indx]<<8));
-			indx+=16;
-		}
-
-        if(patched) {
-            sysLv2FsRename(file, file2);
-            SaveFile(file, (char *) mem, len);   
+            while(mem[str] && str < len) str++; str++;
+            pos  += (mem[0x1c + indx] + (mem[0x1d + indx]<<8));
+            indx += 16;
         }
 
-    if(mem) free(mem);
-    if(mem2) free(mem2);
+        if(patched)
+        {
+            sysLv2FsRename(file, file2);
+            SaveFile(file, (char *) mem, len);
+        }
 
-    return 0;
-        
+        if(mem) free(mem);
+        if(mem2) free(mem2);
+
+        return SUCCESS;
     }
 
-	return -1;
-
+    return FAILED;
 }
 
 int param_sfo_patch_category_to_cb(char * path_src, char *path_dst)
@@ -4638,73 +6398,76 @@ int param_sfo_patch_category_to_cb(char * path_src, char *path_dst)
     Lv2FsFile fd;
     u64 bytes;
     u64 position = 0LL;
-    char file[0x420];
-    char file2[0x420];
-    
+    char file[MAX_PATH_LEN];
+    char file2[MAX_PATH_LEN];
+
     unsigned char *mem2 = NULL;
 
     sprintf(file, "%s", path_src);
     sprintf(file2, "%s", path_dst);
-    
-    if(!sysLv2FsOpen(file, 0, &fd, S_IRWXU | S_IRWXG | S_IRWXO, NULL, 0)) {
+
+    if(!sysLv2FsOpen(file, 0, &fd, S_IREAD | S_IRGRP | S_IROTH, NULL, 0))
+    {
         unsigned len, pos, str;
-        
+
         sysLv2FsLSeek64(fd, 0, 2, &position);
         len = (u32) position;
 
-        mem2 = (unsigned char *) malloc(len+16);
-        if(!mem2) {
+        mem2 = (unsigned char *) malloc(len + 16);
+        if(!mem2)
+        {
             sysLv2FsClose(fd);
             return -2;
         }
 
-        memset(mem2, 0, len+16);
+        memset(mem2, 0, len + 16);
 
         sysLv2FsLSeek64(fd, 0, 0, &position);
-        
+
         if(sysLv2FsRead(fd, mem2, len, &bytes)!=0)
-            bytes =0LL;
+            bytes = 0LL;
 
         len = (u32) bytes;
 
         sysLv2FsClose(fd);
 
-        str= (mem2[8]+(mem2[9]<<8));
-        pos=(mem2[0xc]+(mem2[0xd]<<8));
-        int indx=0;
+        str = (mem2[8] + (mem2[9]<<8));
+        pos = (mem2[0xc] + (mem2[0xd]<<8));
+        int indx = 0;
 
-        while(str<len) {
+        while(str < len)
+        {
             if(mem2[str] == 0)
                 break;
 
-            if(!strcmp((char *) &mem2[str], "CATEGORY")) {
-                mem2[pos]='H';
-                mem2[pos+1]='G';
+            if(!strcmp((char *) &mem2[str], "CATEGORY"))
+            {
+                mem2[pos] = 'H';
+                mem2[pos+1] = 'G';
             }
 
-            if(!strcmp((char *) &mem2[str], "APP_VER")) {
-                mem2[pos]='9';mem2[pos+1]='9';mem2[pos+3]='9';mem2[pos+4]='9';
+            if(!strcmp((char *) &mem2[str], "APP_VER"))
+            {
+                mem2[pos] = '9'; mem2[pos + 1] = '9'; mem2[pos + 3] = '9'; mem2[pos + 4] = '9';
             }
 
-            while(mem2[str])
-                str++;
-            str++;
-            pos += (mem2[0x1c+indx] + (mem2[0x1d+indx]<<8));
+            while(mem2[str] && str < len) str++; str++;
+            pos  += (mem2[0x1c + indx] + (mem2[0x1d + indx]<<8));
             indx += 16;
         }
 
-        if(SaveFile(file2, (char *) mem2, len)) {
+        if(SaveFile(file2, (char *) mem2, len))
+        {
             free(mem2);
             return -2;
         }
 
-        if(mem2)
-            free(mem2);
+        if(mem2) free(mem2);
 
-        return 0;
+        return SUCCESS;
     }
 
-    return -1;
+    return FAILED;
 }
 
 /*******************************************************************************************************************************************************/
@@ -4719,8 +6482,8 @@ static int ntable = 0;
 
 void reset_sys8_path_table()
 {
-    while(ntable > 0) {
-
+    while(ntable > 0)
+    {
         if(table_compare[ntable - 1]) free(table_compare[ntable - 1]);
         if(table_replace[ntable - 1]) free(table_replace[ntable - 1]);
 
@@ -4735,7 +6498,7 @@ void add_sys8_path_table(char * compare, char * replace)
     table_compare[ntable] = malloc(strlen(compare) + 1);
     if(!table_compare[ntable]) return;
     strncpy(table_compare[ntable], compare, strlen(compare) + 1);
-    
+
     table_replace[ntable] = malloc(strlen(replace) + 1);
     if(!table_replace[ntable]) return;
     strncpy(table_replace[ntable], replace, strlen(replace) + 1);
@@ -4749,27 +6512,29 @@ void add_sys8_bdvd(char * bdvd, char * app_home)
 {
     static char compare1[]="/dev_bdvd";
     static char compare2[]="/app_home";
-    static char replace1[0x420];
-    static char replace2[0x420];
+    static char replace1[MAX_PATH_LEN];
+    static char replace2[MAX_PATH_LEN];
     int pos = 17;
 
     table_compare[pos] = NULL;
     table_compare[pos + 1] = NULL;
 
-    if(bdvd) {
-        strncpy(replace1, bdvd, 0x420);
+    if(bdvd)
+    {
+        strncpy(replace1, bdvd, MAX_PATH_LEN);
         table_compare[pos] = compare1;
         table_replace[pos] = replace1;
         pos++;
     }
-    
-    if(app_home) {
-        strncpy(replace2, app_home, 0x420);
+
+    if(app_home)
+    {
+        strncpy(replace2, app_home, MAX_PATH_LEN);
         table_compare[pos] = compare2;
         table_replace[pos] = replace2;
         pos++;
     }
-    
+
 }
 
 void build_sys8_path_table()
@@ -4788,16 +6553,18 @@ void build_sys8_path_table()
     if(ntable <= 0 && !table_compare[17] && !table_compare[18]) return;
     if(ntable <= 0) {table_compare[0] = 0; ntable = 0;}
 
-    while(ntable>0 && table_compare[entries] != NULL) entries++;
+    while(ntable > 0 && table_compare[entries] != NULL) entries++;
 
     // /dev_bdvd & /app_home entries
-    if(table_compare[17]) {
-        table_compare[entries] = table_compare[17]; 
+    if(table_compare[17])
+    {
+        table_compare[entries] = table_compare[17];
         table_replace[entries] = table_replace[17];
         entries++;
     }
 
-    if(table_compare[18]) {
+    if(table_compare[18])
+    {
         table_compare[entries] = table_compare[18];
         table_replace[entries] = table_replace[18];
         entries++;
@@ -4807,21 +6574,22 @@ void build_sys8_path_table()
 
     entries = 0;
 
-    while(table_compare[entries] != NULL) {
+    while(table_compare[entries] != NULL)
+    {
         int l = strlen(table_compare[entries]);
 
-        arena_size += 0x420;
-        for(m = 0x80; m <= 0x420; m += 0x20)
-            if(l < m) {arena_size += m;break;}
+        arena_size += MAX_PATH_LEN;
+        for(m = 0x80; m <= MAX_PATH_LEN; m += 0x20)
+            if(l < m) {arena_size += m; break;}
 
-    entries++;
+        entries++;
     }
 
 
     if(!entries) return;
 
     char * datas = memalign(16, arena_size + sizeof(path_open_entry) * (entries + 2));
-    
+
     if(!datas) return;
 
     u64 dest_table_addr = 0x80000000007FE000ULL - (u64)((arena_size + sizeof(path_open_entry) * (entries + 1) + 15) & ~15);
@@ -4830,30 +6598,28 @@ void build_sys8_path_table()
 
     pentries = (path_open_entry *) datas;
 
-    for(n = 0; n < entries; n++) {
-    
+    for(n = 0; n < entries; n++)
+    {
         int l = strlen(table_compare[n]);
 
         int size = 0;
-        for(m = 0x80; m <= 0x420; m += 0x20)
+        for(m = 0x80; m <= MAX_PATH_LEN; m += 0x20)
             if(l < m) {size += m; break;}
 
         pentries->compare_addr = dest_table_addr + (u64) (arena_offset);
 
         pentries->replace_addr = dest_table_addr + (u64) (arena_offset + size);
-        
 
         strncpy(&datas[arena_offset], table_compare[n], size);
-        strncpy(&datas[arena_offset + size], table_replace[n], 0x420);
+        strncpy(&datas[arena_offset + size], table_replace[n], MAX_PATH_LEN);
 
         pentries->compare_len = strlen(&datas[arena_offset]);
         pentries->replace_len = strlen(&datas[arena_offset + size]);
 
-        arena_offset += size + 0x420;
+        arena_offset += size + MAX_PATH_LEN;
         pentries ++;
-       
     }
-    
+
     pentries->compare_addr = 0ULL;
 
     sys8_memcpy(dest_table_addr, (u64) datas, (u64) (arena_size + sizeof(path_open_entry) * (entries + 1)));
@@ -4866,27 +6632,27 @@ void build_sys8_path_table()
     sys8_path_table( dest_table_addr);
 }
 
-
 void copy_usb_to_iris(char * path)
 {
     int n;
-    char name[0x420];
+    char name[MAX_PATH_LEN];
 
     copy_split_to_cache = 0;
     copy_total_size = 0LL;
     file_counter = 0;
     abort_copy = 0;
 
-    for(n=1;n<11;n++) {
+    for(n = 1; n < 11; n++)
+    {
          if((fdevices >> n) & 1) break;
     }
 
-    if(n == 12) return;
-    
+    if(n == 11) return;
+
     n+= 47;
     sprintf(name, "/dev_usb00%c/iris", n);
 
-    initConsole();
+    DCls();
     my_game_countsize(name);
 
     u32 blockSize;
@@ -4895,15 +6661,15 @@ void copy_usb_to_iris(char * path)
     sysFsGetFreeSize("/dev_hdd0/", &blockSize, &freeSize);
     free_hdd0 = ( ((u64)blockSize * freeSize));
 
-    if((copy_total_size + 0x40000000LL) >= (s64) free_hdd0) {
-        sprintf(filename, "%s\n\n%s%1.2f GB", "Error: no space in HDD0 to copy it", "You need ", 
-            ((double) (copy_total_size + 0x40000000LL - free_hdd0))/(1024.0*1024.*1024.0));
+    if((copy_total_size + 0x40000000LL) >= (s64) free_hdd0)
+    {
+        sprintf(filename, language[GAMECHCPY_NOSPACE], free_hdd0, ((double) (copy_total_size + 0x40000000LL - free_hdd0)) / GIGABYTES);
         DrawDialogOK(filename);
         return;
     }
 
     if(abort_copy) //abort by user or got an error
-    { 
+    {
         if(DrawDialogYesNo(language[GAMECPYSL_GSIZEABCNTASK]) != 1)
         {
             return;
@@ -4913,27 +6679,27 @@ void copy_usb_to_iris(char * path)
             //old mode
             copy_total_size = 0;
         }
-    } 
+    }
 
     dialog_action = 0;
     abort_copy = 0;
 
-    sprintf(filename, "/dev_usb/iris %s Iris Manager?\nVol: %1.2f MB", 
-                        language[GLUTIL_WTO], 
-                        ((double) copy_total_size)/(1024.0*1024)); 
+    sprintf(filename, "/dev_usb/iris %s Iris Manager?\nVol: %1.2f MB",
+                        language[GLUTIL_WTO],
+                        ((double) copy_total_size)/(1024.0*1024));
 
     dialog_action = 0;
-    
+
     msgDialogOpen2( mdialogyesno, filename, my_dialog, (void*)0x0000aaaa, NULL );
-            
+
     wait_dialog();
 
-
-    if(dialog_action == 1) {
+    if(dialog_action == 1)
+    {
         time_start = time(NULL);
 
         abort_copy = 0;
-        initConsole();
+        DCls();
         file_counter = 0;
         new_pad = 0;
 
@@ -4941,7 +6707,7 @@ void copy_usb_to_iris(char * path)
 
         copy_mode = 0;
 
-        copy_is_split=0;
+        copy_is_split = 0;
 
         // sys8_perm_mode(1);
         my_game_copy((char *) name, (char *) path);
@@ -4951,22 +6717,17 @@ void copy_usb_to_iris(char * path)
 
         int seconds = (int) (time(NULL) - time_start);
         int vflip = 0;
-        
-        
-        while(1) {
 
-            if(abort_copy) {
+        while(true)
+        {
+            if(abort_copy)
+                sprintf(string1,"%s  %s: %2.2i:%2.2i:%2.2i\n", language[GLUTIL_ABORTED], language[GLUTIL_TIME],
+                        seconds / 3600, (seconds/60) % 60, seconds % 60);
+            else
+                sprintf(string1,"%s  %s: %2.2i:%2.2i:%2.2i Vol: %1.2f GB\n", language[GAMECPYSL_DONE], language[GLUTIL_TIME],
+                        seconds / 3600, (seconds/60) % 60, seconds % 60, ((double) global_device_bytes) / GIGABYTES);
 
-                sprintf(string1,"%s  %s: %2.2i:%2.2i:%2.2i\n", language[GLUTIL_ABORTED], language[GLUTIL_TIME], 
-                    seconds / 3600, (seconds/60) % 60, seconds % 60);
-            }
-            else {
 
-                sprintf(string1,"%s  %s: %2.2i:%2.2i:%2.2i Vol: %1.2f GB\n", language[GAMECPYSL_DONE], language[GLUTIL_TIME], 
-                    seconds / 3600, (seconds/60) % 60, seconds % 60, ((double) global_device_bytes) / (1024.0 * 1024. * 1024.0));
-            }
-
-            
             cls2();
 
             DbgHeader( string1);
@@ -4977,22 +6738,106 @@ void copy_usb_to_iris(char * path)
                 DbgMess("");
 
             vflip++;
-                
+
             DbgDraw();
 
             tiny3d_Flip();
-            
-            ps3pad_read();
 
-            if (new_pad & BUTTON_CROSS) {
-            
-                new_pad = 0;
-                break;
+            if(ps3pad_poll())
+            {
+               new_pad = 0;
+               break;
             }
-
-        }    
-        
+        }
     }
-	
 }
 
+u64 string_to_ull( char *string )
+{
+    u64 ull;
+    ull = strtoull( (const char *)string, NULL, 16 );
+    return ull;
+}
+
+#define SYSCALL8_OPCODE_PS3MAPI			 			0x7777
+#define PS3MAPI_OPCODE_GET_VSH_PLUGIN_INFO			0x0047
+#define PS3MAPI_OPCODE_GET_CORE_MINVERSION			0x0012
+
+LV2_SYSCALL ps3mapi_get_core_minversion(void)
+{
+    lv2syscall2(SYSCALL_MAMBA, SYSCALL8_OPCODE_PS3MAPI, PS3MAPI_OPCODE_GET_CORE_MINVERSION);
+    return_to_user_prog(s32);
+}
+
+static void sys8_get_plugin_slot(unsigned int slot, char *tmp_name, char *tmp_filename)
+{
+    memset(tmp_name, 0, sizeof(tmp_name));
+    memset(tmp_filename, 0, sizeof(tmp_filename));
+
+    lv2syscall5(SYSCALL_MAMBA, SYSCALL8_OPCODE_PS3MAPI, PS3MAPI_OPCODE_GET_VSH_PLUGIN_INFO, (u64)slot, (u64)tmp_name, (u64)tmp_filename);
+}
+
+unsigned int get_vsh_plugin_slot_by_name(const char *name)
+{
+    char tmp_name[30];
+    char tmp_filename[256];
+    unsigned int slot;
+
+    bool find_free_slot = (!name || (*name == 0));
+
+    for (slot = 1; slot < 7; slot++)
+    {
+        sys8_get_plugin_slot(slot, tmp_name, tmp_filename);
+
+        if(find_free_slot) {if(*tmp_name) continue; return slot;}
+
+        if(!strcmp(tmp_name, name) || strstr(tmp_filename, name)) return slot;
+    }
+
+    return 0;
+}
+
+unsigned int get_vsh_plugin_free_slot(void)
+{
+    if(ps3mapi_get_core_minversion() == 0) return 6;
+
+    char tmp_name[30];
+    char tmp_filename[256];
+    int slot;
+
+    for (slot = 1; slot < 7; slot++)
+    {
+        memset(tmp_name, 0, sizeof(tmp_name));
+        memset(tmp_filename, 0, sizeof(tmp_filename));
+        lv2syscall5(SYSCALL_MAMBA, SYSCALL8_OPCODE_PS3MAPI, PS3MAPI_OPCODE_GET_VSH_PLUGIN_INFO, (u64)slot, (u64)tmp_name, (u64)tmp_filename);
+        if(strlen(tmp_filename) == 0 && strlen(tmp_name) == 0) {return slot;}
+    }
+
+    return FAILED;
+}
+
+void urldec(char *url)
+{
+	if(strchr(url, '%'))
+	{
+		u16 pos = 0; char c;
+		for(u16 i = 0; url[i] >= ' '; i++, pos++)
+		{
+			if(url[i] == '+')
+				url[pos] = ' ';
+			else if(url[i] != '%')
+				url[pos] = url[i];
+			else
+			{
+				url[pos] = 0; u8 n = 2;
+				while(n--)
+				{
+					url[pos] <<= 4, i++, c = (url[i] | 0x20);
+					if(c >= '0' && c <= '9') url[pos] += c -'0';      else
+					if(c >= 'a' && c <= 'f') url[pos] += c -'a' + 10;
+				}
+			}
+		}
+		url[pos] = 0;
+	}
+}

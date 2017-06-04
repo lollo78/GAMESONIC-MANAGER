@@ -1,4 +1,4 @@
-/* 
+/*
     (c) 2013 Hermes/Estwald <www.elotrolado.net>
     IrisManager (HMANAGER port) (c) 2011 D_Skywalk <http://david.dantoine.org>
 
@@ -13,15 +13,15 @@
     GNU General Public License for more details.
 
     You should have received a copy of the GNU General Public License
-    apayloadlong with HMANAGER4.  If not, see <http://www.gnu.org/licenses/>.
+    along with HMANAGER4.  If not, see <http://www.gnu.org/licenses/>.
 
 */
 
 #include "utils.h"
 #include <sys/systime.h>
 
-struct _PS3TimeZone{
-    
+struct _PS3TimeZone {
+
     int ftime;
     char *name;
 
@@ -144,6 +144,7 @@ int sys_timezone = 29;
 int sys_dateformat = 1;
 int sys_summer = 0;
 int sys_parental_level = 9;
+int sys_button_layout = 1; //0 = O is enter, 1 = X is enter
 
 int read_from_registry()
 {
@@ -160,60 +161,61 @@ int read_from_registry()
 
     if(!mem) return -1;
 
-    n= 0xfff0;
-    if(mem[n]!=0x4D || mem[n + 1]!=0x26) goto end;
-    n+=2;
+    n = 0xfff0;
+    if(mem[n] != 0x4D || mem[n + 1] != 0x26) goto exitloop;
+    n += 2;
 
-    while(n < file_size - 4) {
-    
-        if(mem[n + 0]==0xAA && mem[n + 1]==0xBB && mem[n + 2]==0xCC && mem[n + 3]==0xDD) break;
+    while(n < file_size - 4)
+    {
+        if(mem[n + 0] == 0xAA && mem[n + 1] == 0xBB && mem[n + 2] == 0xCC && mem[n + 3] == 0xDD) break;
         str_offset= ((mem[n+2]<<8) | mem[n+3]) + 0x10;
 
         data_len= (mem[n+6]<<8) | mem[n+7];
-        
+
         str_len = (mem[str_offset + 2]<<8) | mem[str_offset + 3];
 
-        if(str_len == 24 && !strcmp((char *) &mem[str_offset + 5], "/setting/system/language")) {
-           
+        if(str_len == 24 && !strcmp((char *) &mem[str_offset + 5], "/setting/system/language"))
+        {
             memcpy(&ret, &mem[n+9], 4); sys_language = ret;
-            found|=1;
-            if(found == 31) goto end;
+            found++; if(found >= 6) break;
         }
 
-        if(str_len == 28 && !strcmp((char *) &mem[str_offset + 5], "/setting/dateTime/summerTime")) {
-           
-            memcpy(&ret, &mem[n+9], 4);  sys_summer = ret; 
-            found|=2;
-            if(found == 31) goto end;
+        if(str_len == 28 && !strcmp((char *) &mem[str_offset + 5], "/setting/dateTime/summerTime"))
+        {
+            memcpy(&ret, &mem[n+9], 4);  sys_summer = ret;
+            found++; if(found >= 6) break;
         }
 
-        if(str_len == 26 && !strcmp((char *) &mem[str_offset + 5], "/setting/dateTime/timeZone")) {
-           
-            memcpy(&ret, &mem[n+9], 4);  sys_timezone = ret; 
-            found|=4;
-            if(found == 31) goto end;
+        if(str_len == 26 && !strcmp((char *) &mem[str_offset + 5], "/setting/dateTime/timeZone"))
+        {
+            memcpy(&ret, &mem[n+9], 4);  sys_timezone = ret;
+            found++; if(found >= 6) break;
         }
 
-        if(str_len == 28 && !strcmp((char *) &mem[str_offset + 5], "/setting/dateTime/dateFormat")) {
-           
-            memcpy(&ret, &mem[n+9], 4);  sys_dateformat = ret; 
-            found|=8;
-            if(found == 31) goto end;
+        if(str_len == 28 && !strcmp((char *) &mem[str_offset + 5], "/setting/dateTime/dateFormat"))
+        {
+            memcpy(&ret, &mem[n+9], 4);  sys_dateformat = ret;
+            found++; if(found >= 6) break;
         }
 
-        if(str_len == 27 && !strcmp((char *) &mem[str_offset + 5], "/setting/parental/gameLevel")) {
-           
-            memcpy(&ret, &mem[n+9], 4);  sys_parental_level = ret; 
-            found|=16;
-            if(found == 31) goto end;
+        if(str_len == 27 && !strcmp((char *) &mem[str_offset + 5], "/setting/parental/gameLevel"))
+        {
+            memcpy(&ret, &mem[n+9], 4);  sys_parental_level = ret;
+            found++; if(found >= 6) break;
         }
 
-        n+= 10 + data_len;
+        if(str_len == 28 && !strcmp((char *) &mem[str_offset + 5], "/setting/system/buttonAssign"))
+        {
+            memcpy(&ret, &mem[n+9], 4);  sys_button_layout = ret;
+            found++; if(found >= 6) break;
+        }
+
+        n += 10 + data_len;
     }
 
-    
-end:
-    if(found == 31) ret = 0; else ret = -2;
+
+exitloop:
+    if(found == 6) ret = 0; else ret = -2;
     free(mem);
     return ret;
 }
@@ -248,31 +250,31 @@ void PS3GetDateTime(u32 * hh, u32 * mm, u32 * ss, u32 * day, u32 * month, u32 * 
 
     int dd = *(day);
 
-    if(dd < 0) {
-     
+    if(dd < 0)
+    {
         (*year) --;
 
         *day = ((u32) sec) - (*year * 365) - ((*year + 1)/4); // days in the year
     }
 
     *year += 1970;
-    
-    if((*year % 4) == 0) bi = 1; 
+
+    if((*year % 4) == 0) bi = 1;
 
     static u32 day_month[12] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
 
     *month = 1;
 
-    for(n= 0; n < 12; n++) {
-        
-        if(*day < day_month[n] + ((n==1) && bi)) {
+    for(n= 0; n < 12; n++)
+    {
+        if(*day < day_month[n] + ((n==1) && bi))
+        {
             *day += 1;
             *month = n + 1;
             break;
         }
 
         *day -= day_month[n] + ((n==1) && bi);
-       
     }
 
 }

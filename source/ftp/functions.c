@@ -27,77 +27,89 @@
 
 #include "defines.h"
 #include "functions.h"
+#include "ntfs.h"
 
 void abspath(const char *relpath, const char *cwd, char *abspath)
 {
-	if(relpath[0] == '/')
-	{
-		strcpy(abspath, relpath);
-	}
-	else
-	{
-		strcpy(abspath, cwd);
-		
-		if(cwd[strlen(cwd) - 1] != '/')
-		{
-			strcat(abspath, "/");
-		}
-		
-		strcat(abspath, relpath);
-	}
+    if(relpath[0] == '/')
+    {
+        strcpy(abspath, relpath);
+    }
+    else
+    {
+        strcpy(abspath, cwd);
+
+        if(cwd[strlen(cwd) - 1] != '/')
+        {
+            strcat(abspath, "/");
+        }
+
+        strcat(abspath, relpath);
+    }
 }
 
 int exists(const char *path)
 {
-	sysFSStat stat;
-	return sysLv2FsStat(path, &stat);
+    if(!strncmp(path, "/ntfs", 5) || !strncmp(path, "/ext", 4))
+    {
+        struct stat st;
+        return ps3ntfs_stat(path, &st);
+    }
+
+    sysFSStat stat;
+    return sysLv2FsStat(path, &stat);
 }
 
 int is_dir(const char *path)
 {
-	sysFSStat stat;
-	return (sysLv2FsStat(path, &stat) == 0 && fis_dir(stat));
+    if(!strncmp(path, "/ntfs", 5) || !strncmp(path, "/ext", 4))
+    {
+        struct stat st;
+        return ps3ntfs_stat(path, &st) == 0 && fis_dir(st);
+    }
+
+    sysFSStat stat;
+    return (sysLv2FsStat(path, &stat) == 0 && fis_dir(stat));
 }
 
 int strpos(const char *haystack, int needle)
 {
-	char *p = strchr(haystack, needle);
-	return p ? (p - haystack) : -1;
+    char *p = strchr(haystack, needle);
+    return p ? (p - haystack) : -1;
 }
 
 int strsplit(const char *str, char *left, int lmaxlen, char *right, int rmaxlen)
 {
-	int sp = strpos(str, ' ');
-	int len = strlen(str);
-	
-	int lmax = low((sp > 0) ? sp : len, lmaxlen);
-	strncpy(left, str, lmax);
-	left[lmax] = '\0';
-	
-	if(sp > 0 && len > sp)
-	{
-		int rmax = low((len - sp - 1), rmaxlen);
-		strncpy(right, str + sp + 1, rmax);
-		right[rmax] = '\0';
-		
-		return 1;
-	}
-	
-	return 0;
+    int sp = strpos(str, ' ');
+    int len = strlen(str);
+
+    int lmax = low((sp > 0) ? sp : len, lmaxlen);
+    strncpy(left, str, lmax);
+    left[lmax] = '\0';
+
+    if(sp > 0 && len > sp)
+    {
+        int rmax = low((len - sp - 1), rmaxlen);
+        strncpy(right, str + sp + 1, rmax);
+        right[rmax] = '\0';
+
+        return 1;
+    }
+
+    return 0;
 }
 
 void strreplace(char *str, int oldc, int newc)
 {
-	char *pos;
-	while((pos = strchr(str, oldc)) != NULL)
-	{
-		*pos = newc;
-	}
+    char *pos;
+    while((pos = strchr(str, oldc)) != NULL)
+    {
+        *pos = newc;
+    }
 }
 
 void strtoupper(char *str)
 {
-	do if(96 == (224 & *str)) *str &= 223;
-	while(*str++);
+    do if(*str > 96 && *str < 123) *str &= 223;
+    while(*str++);
 }
-

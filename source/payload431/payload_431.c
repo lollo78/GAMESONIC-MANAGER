@@ -1,4 +1,4 @@
-/*                                                                                                                                                                                 
+/*
  * Copyright (C) 2010 drizzt
  *
  * Authors:
@@ -31,7 +31,7 @@
 
 #define CONFIG_USE_SYS8PERMH4 1
 
-#undef SYSCALL_BASE 
+#undef SYSCALL_BASE
 #undef NEW_POKE_SYSCALL
 #undef NEW_POKE_SYSCALL_ADDR
 #undef PAYLOAD_OFFSET
@@ -46,7 +46,7 @@
 #define UMOUNT_SYSCALL_OFFSET           (0x1B5070 +0x8) // SYSCALL (838)
 #define LV2MOUNTADDR_431 0x8000000000458098ULL
 //0xff0 => 0x116c (458098 - 459204)
-#define LV2MOUNTADDR_431_ESIZE 0x118 
+#define LV2MOUNTADDR_431_ESIZE 0x118
 #define LV2MOUNTADDR_431_CSIZE 0x108
 
 extern int noBDVD;
@@ -117,19 +117,19 @@ int is_payload_loaded_431(void)
 {
     u64 addr = peekq(0x80000000000004f0ULL);
     syscall_base = SYSCALL_BASE;
-    
+
     if((addr>>32) == 0x534B3145) { // new method to detect the payload
         addr&= 0xffffffff;
         if(addr) {
-            restore_syscall8[0]= SYSCALL_BASE + 64ULL; // (8*8)
+            restore_syscall8[0]= SYSCALL_BASE + (u64) (SYSCALL_SK1E * 8ULL); // (8*8)
             restore_syscall8[1]= peekq(restore_syscall8[0]);
             pokeq(restore_syscall8[0], 0x8000000000000000ULL + (u64) (addr + 0x20));
         }
-        
+
         return SKY10_PAYLOAD;
     }
 
-    addr = peekq((SYSCALL_BASE + 36 * 8));
+    addr = peekq((SYSCALL_BASE + SYSCALL_36 * 8));
     addr = peekq(addr);
     if(peekq(addr - 0x20) == 0x534B313000000000ULL) //SK10 HEADER
         return SKY10_PAYLOAD;
@@ -163,13 +163,13 @@ static inline void install_lv2_memcpy()
         pokeq(0x8000000000001820ULL, 0x8000000000001830ULL);
         pokeq(0x8000000000001828ULL, peekq(0x8000000000003000ULL));
         pokeq(0x8000000000001830ULL, 0x282500004D820020ULL);
-        pokeq(0x8000000000001838ULL, 0x38A5FFFF7CC428AEULL); 
+        pokeq(0x8000000000001838ULL, 0x38A5FFFF7CC428AEULL);
         pokeq(0x8000000000001840ULL, 0x7CC329AE7C0006ACULL);
-        pokeq(0x8000000000001848ULL, 0x7CE32A1470E80003ULL); 
+        pokeq(0x8000000000001848ULL, 0x7CE32A1470E80003ULL);
         pokeq(0x8000000000001850ULL, 0x282500004082000CULL);
-        pokeq(0x8000000000001858ULL, 0x7CE838504800000CULL); 
+        pokeq(0x8000000000001858ULL, 0x7CE838504800000CULL);
         pokeq(0x8000000000001860ULL, 0x282800004082FFCCULL);
-        pokeq(0x8000000000001868ULL, 0x7C0038AC7C0004ACULL); 
+        pokeq(0x8000000000001868ULL, 0x7C0038AC7C0004ACULL);
         pokeq(0x8000000000001870ULL, 0x7C003FAC4C00012CULL);
         pokeq(0x8000000000001878ULL, 0x4BFFFFB800000000ULL);
         _poke((u32) (SYSCALL_BASE + 9 * 8), 0x8000000000001820ULL);
@@ -186,13 +186,13 @@ static inline void remove_lv2_memcpy()
         pokeq(0x8000000000001820ULL, 0x0ULL);
         pokeq(0x8000000000001828ULL, 0x0ULL);
         pokeq(0x8000000000001830ULL, 0x0ULL);
-        pokeq(0x8000000000001838ULL, 0x0ULL); 
+        pokeq(0x8000000000001838ULL, 0x0ULL);
         pokeq(0x8000000000001840ULL, 0x0ULL);
-        pokeq(0x8000000000001848ULL, 0x0ULL); 
+        pokeq(0x8000000000001848ULL, 0x0ULL);
         pokeq(0x8000000000001850ULL, 0x0ULL);
-        pokeq(0x8000000000001858ULL, 0x0ULL); 
+        pokeq(0x8000000000001858ULL, 0x0ULL);
         pokeq(0x8000000000001860ULL, 0x0ULL);
-        pokeq(0x8000000000001868ULL, 0x0ULL); 
+        pokeq(0x8000000000001868ULL, 0x0ULL);
         pokeq(0x8000000000001870ULL, 0x0ULL);
         pokeq(0x8000000000001878ULL, 0x0ULL);
         _poke((u32) (SYSCALL_BASE + 9 * 8), restore_syscall);
@@ -202,15 +202,15 @@ static inline void remove_lv2_memcpy()
 
 
 u8 lv1_peek_poke_call_routines[136] = {
-	0x7C, 0x08, 0x02, 0xA6, 0xF8, 0x01, 0x00, 0x10, 0x39, 0x60, 0x00, 0xB6, 0x44, 0x00, 0x00, 0x22, 
-	0x7C, 0x83, 0x23, 0x78, 0xE8, 0x01, 0x00, 0x10, 0x7C, 0x08, 0x03, 0xA6, 0x4E, 0x80, 0x00, 0x20, 
-	0x7C, 0x08, 0x02, 0xA6, 0xF8, 0x01, 0x00, 0x10, 0x39, 0x60, 0x00, 0xB7, 0x44, 0x00, 0x00, 0x22, 
-	0x38, 0x60, 0x00, 0x00, 0xE8, 0x01, 0x00, 0x10, 0x7C, 0x08, 0x03, 0xA6, 0x4E, 0x80, 0x00, 0x20, 
-	0x7C, 0x08, 0x02, 0xA6, 0xF8, 0x01, 0x00, 0x10, 0x7D, 0x4B, 0x53, 0x78, 0x44, 0x00, 0x00, 0x22, 
-	0xE8, 0x01, 0x00, 0x10, 0x7C, 0x08, 0x03, 0xA6, 0x4E, 0x80, 0x00, 0x20, 0x80, 0x00, 0x00, 0x00, 
-	0x00, 0x00, 0x17, 0x0C, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x17, 0x14, 0x80, 0x00, 0x00, 0x00, 
-	0x00, 0x00, 0x17, 0x1C, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x17, 0x3C, 0x80, 0x00, 0x00, 0x00, 
-	0x00, 0x00, 0x17, 0x5C, 0x00, 0x00, 0x00, 0x00
+    0x7C, 0x08, 0x02, 0xA6, 0xF8, 0x01, 0x00, 0x10, 0x39, 0x60, 0x00, 0xB6, 0x44, 0x00, 0x00, 0x22,
+    0x7C, 0x83, 0x23, 0x78, 0xE8, 0x01, 0x00, 0x10, 0x7C, 0x08, 0x03, 0xA6, 0x4E, 0x80, 0x00, 0x20,
+    0x7C, 0x08, 0x02, 0xA6, 0xF8, 0x01, 0x00, 0x10, 0x39, 0x60, 0x00, 0xB7, 0x44, 0x00, 0x00, 0x22,
+    0x38, 0x60, 0x00, 0x00, 0xE8, 0x01, 0x00, 0x10, 0x7C, 0x08, 0x03, 0xA6, 0x4E, 0x80, 0x00, 0x20,
+    0x7C, 0x08, 0x02, 0xA6, 0xF8, 0x01, 0x00, 0x10, 0x7D, 0x4B, 0x53, 0x78, 0x44, 0x00, 0x00, 0x22,
+    0xE8, 0x01, 0x00, 0x10, 0x7C, 0x08, 0x03, 0xA6, 0x4E, 0x80, 0x00, 0x20, 0x80, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x17, 0x0C, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x17, 0x14, 0x80, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x17, 0x1C, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x17, 0x3C, 0x80, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x17, 0x5C, 0x00, 0x00, 0x00, 0x00
 };
 
 
@@ -220,31 +220,31 @@ void load_payload_431(int mode)
     install_lv2_memcpy();
     /* install lv1 peek/poke/call */
     lv2_memcpy(0x800000000000171C,
-                   (u64) lv1_peek_poke_call_routines, 
+                   (u64) lv1_peek_poke_call_routines,
                    sizeof(lv1_peek_poke_call_routines));
 
     /* WARNING!! It supports only payload with a size multiple of 8 */
     lv2_memcpy(0x8000000000000000ULL + (u64) PAYLOAD_OFFSET,
-                   (u64) payload_sky_431_bin, 
+                   (u64) payload_sky_431_bin,
                    payload_sky_431_bin_size);
 
     lv2_memcpy(0x8000000000000000ULL + (u64) PAYLOAD_UMOUNT_OFFSET, // copy umount routine
-                      (u64) umount_431_bin, 
+                      (u64) umount_431_bin,
                       umount_431_bin_size);
 
-    restore_syscall8[0]= SYSCALL_BASE + 64ULL; // (8*8)
+    restore_syscall8[0]= SYSCALL_BASE + (u64) (SYSCALL_SK1E * 8ULL); // (8*8)
     restore_syscall8[1]= peekq(restore_syscall8[0]);
 
     u64 id[2];
     // copy the id
     id[0]= 0x534B314500000000ULL | (u64) PAYLOAD_OFFSET;
-    id[1] = SYSCALL_BASE + 64ULL; // (8*8)
+    id[1] = SYSCALL_BASE + (u64) (SYSCALL_SK1E * 8ULL); // (8*8)
     lv2_memcpy(0x80000000000004f0ULL, (u64) &id[0], 16);
 
     u64 inst8 =  peekq(0x8000000000003000ULL);                     // get TOC
     lv2_memcpy(0x8000000000000000ULL + (u64) (PAYLOAD_OFFSET + 0x28), (u64) &inst8, 8);
     inst8 = 0x8000000000000000ULL + (u64) (PAYLOAD_OFFSET + 0x20); // syscall_8_desc - sys8
-    lv2_memcpy(SYSCALL_BASE + (u64) (8 * 8), (u64) &inst8, 8);
+    lv2_memcpy(SYSCALL_BASE + (u64) (SYSCALL_SK1E * 8ULL), (u64) &inst8, 8);
 
     usleep(1000);
 
@@ -255,6 +255,18 @@ void load_payload_431(int mode)
     pokeq(0x80000000007EF000ULL, 0ULL); // BE Emu mount
     pokeq(0x80000000007EF220ULL, 0ULL);
 
+    //Patches from webMAN
+    pokeq(0x80000000002979E0ULL, 0x4E80002038600000ULL );
+    pokeq(0x80000000002979E8ULL, 0x7C6307B44E800020ULL ); // fix 8001003C error
+    pokeq(0x8000000000057174ULL, 0x63FF003D60000000ULL ); // fix 8001003D error
+    pokeq(0x800000000005723CULL, 0x3FE080013BE00000ULL ); // fix 8001003E error
+
+    pokeq(0x80000000000571E8ULL, 0x600000002F840004ULL );
+    pokeq(0x80000000000571F0ULL, 0x48000098E8629870ULL );
+    pokeq(0x800000000005ABACULL, 0x60000000E8610188ULL );
+    pokeq(0x800000000005ABA0ULL, 0x600000005463063EULL );
+
+
     _poke((u32) (SYSCALL_BASE + 9 * 8) ,      0x8000000000001790ULL);
     _poke((u32) (SYSCALL_BASE + 10 * 8),      0x8000000000001798ULL);
 
@@ -264,13 +276,13 @@ void load_payload_431(int mode)
     PATCH_JUMP(0x0571F0, 0x57288); // already set in E3
     _poke32(0x05ABAC, 0x60000000); // already set in E3 "nop"
     _poke32(0x05ABC0, 0x60000000); // already set in E3 "nop"
-//    pokeq(0x800000000005ABACULL,0x60000000E8610188ULL); different patch method 
+//    pokeq(0x800000000005ABACULL,0x60000000E8610188ULL); different patch method
 //    pokeq(0x800000000005ABA0ULL,0x600000005463063EULL);
 
     _poke(  0x057174, 0x63FF003D60000000);  // fix 8001003D error  "ori     %r31, %r31, 0x3D\n nop\n"
     _poke32(0x05723C, 0x3BE00000);  // fix 8001003E error -- 3.55 ok in 0x055F64 "li      %r31, 0"
     PATCH_JUMP(0x057240, 0x5714C);          // fix E3 4.30 added error
-    
+
     /** Rancid-o: Fix 0x8001003C error (incorrect version in sys_load_param) - It is present in the new game updates **/
     _poke(0x2979E4, 0x386000007C6307B4);
     _poke32(0x2979EC, 0x4E800020);
@@ -283,7 +295,7 @@ void load_payload_431(int mode)
    PATCH_JUMP(0x2C3D04, (PAYLOAD_OFFSET+0x30)); // patch openhook
 
 
-   // deleted _poke((u32) (SYSCALL_BASE + 36 * 8), 0x8000000000000000ULL + (u64) (PAYLOAD_OFFSET + 0xC8)); // syscall_map_open_desc - sys36
+   // deleted _poke((u32) (SYSCALL_BASE + SYSCALL_36 * 8), 0x8000000000000000ULL + (u64) (PAYLOAD_OFFSET + 0xC8)); // syscall_map_open_desc - sys36
 
 
 #ifdef CONFIG_USE_SYS8PERMH4
@@ -311,7 +323,7 @@ static int lv2_patch_storage_431(void)
 
     memset(&regs_i, 0, sizeof(regs_i));
 
-    regs_i.reg11 = 0xB6; 
+    regs_i.reg11 = 0xB6;
     sys8_lv1_syscall(&regs_i, &regs_o);
 
     if(((int) regs_o.reg3) <0) {
@@ -324,22 +336,22 @@ static int lv2_patch_storage_431(void)
     pokeq32(0x80000000002E9228ULL, 0x40000000);
 
     regs_i.reg3 = 0x16fa60; regs_i.reg4 = 0x7f83e37860000000ULL;
-    regs_i.reg11 = 0xB6; 
+    regs_i.reg11 = 0xB6;
     sys8_lv1_syscall(&regs_i, &regs_o); save_lv1_storage_patches[0]= regs_o.reg4;
     regs_i.reg11 = 0xB7; sys8_lv1_syscall(&regs_i, &regs_o);
 
     regs_i.reg3 = 0x16fa84; regs_i.reg4 = 0x7f85e37838600001ULL;
-    regs_i.reg11 = 0xB6; 
+    regs_i.reg11 = 0xB6;
     sys8_lv1_syscall(&regs_i, &regs_o); save_lv1_storage_patches[1]= regs_o.reg4;
     regs_i.reg11 = 0xB7; sys8_lv1_syscall(&regs_i, &regs_o);
 
     regs_i.reg3 = 0x16fafc; regs_i.reg4 = 0x7f84e3783be00001ULL;
-    regs_i.reg11 = 0xB6; 
+    regs_i.reg11 = 0xB6;
     sys8_lv1_syscall(&regs_i, &regs_o); save_lv1_storage_patches[2]= regs_o.reg4;
     regs_i.reg11 = 0xB7; sys8_lv1_syscall(&regs_i, &regs_o);
 
     regs_i.reg3 = 0x16fb04; regs_i.reg4 = 0x9be1007038600000ULL;
-    regs_i.reg11 = 0xB6; 
+    regs_i.reg11 = 0xB6;
     sys8_lv1_syscall(&regs_i, &regs_o); save_lv1_storage_patches[3]= regs_o.reg4;
     regs_i.reg11 = 0xB7; sys8_lv1_syscall(&regs_i, &regs_o);
 
@@ -384,16 +396,16 @@ static int lv2_unpatch_bdvdemu_431(void)
 {
     int n;
     int flag = 0;
- 
+
     char * mem = temp_buffer;
     memset(mem, 0, 0x10 * 0x118);
 
     poke_syscall = 7;
-    
+
     sys8_memcpy((u64) mem, LV2MOUNTADDR_431, 0x10 * 0x118);
     sys8_memcpy((u64) (mem + 0x1200), 0x80000000007EF020ULL , LV2MOUNTADDR_431_CSIZE);
 
-    for(n = 0; n< 0x116c; n+= LV2MOUNTADDR_431_ESIZE)
+    for(n = 0; n < 0x116c; n+= LV2MOUNTADDR_431_ESIZE)
     {
         if(!memcmp(mem + n, "CELL_FS_UTILITY:HDD1", 21) && mem[n-9]== 1 && mem[n-13]== 1)
         {
@@ -401,44 +413,44 @@ static int lv2_unpatch_bdvdemu_431(void)
             {
                 sys8_memcpy(LV2MOUNTADDR_431 + n + 0x69, (u64) "dev_bdvd\0", 10);
                 flag++;
-            }  
+            }
         }
-        
+
         if(!memcmp(mem + n, "CELL_FS_IOS:PATA0_BDVD_DRIVE", 29) && mem[n-9]== 1 && mem[n-13]== 1)
         {
             if(!memcmp(mem + n + 0x69, "temp_bdvd", 10))
             {
                 sys8_memcpy(LV2MOUNTADDR_431 + n + 0x69, (u64) "dev_bdvd\0", 10);
                 flag++;
-            }  
+            }
         }
-        if(!memcmp(mem + n, "CELL_FS_IOS:USB_MASS_STORAGE0", 29) && mem[n-9]== 1 && mem[n-13]== 1) 
+        if(!memcmp(mem + n, "CELL_FS_IOS:USB_MASS_STORAGE0", 29) && mem[n-9]== 1 && mem[n-13]== 1)
         {
             if(!memcmp(mem + n + 0x69, "dev_bdvd", 9) || !memcmp(mem + n + 0x69, "temp_usb", 9))
             {
                 sys8_memcpy(LV2MOUNTADDR_431 + n + 0x69, (u64) (mem + n + 0x79), 11);
                 sys8_memset(LV2MOUNTADDR_431 + n + 0x79, 0ULL, 12);
-                flag+=10;
+                flag += 10;
             }
-        } 
+        }
         if(!memcmp(mem + n, "CELL_FS_UTILITY:HDD0", 21) && mem[n-9]== 1 && mem[n-13]== 1)
         {
-           if(!memcmp(mem + n + 0x69, "dev_bdvd", 9) 
+           if(!memcmp(mem + n + 0x69, "dev_bdvd", 9)
               && !memcmp(mem + n + 0x79, "esp_bdvd", 9) && peekq(0x80000000007EF000ULL)!=0)
-            {
+           {
                 mem[0x1200+ 0x10 -1] = mem[n-1];
                 sys8_memcpy(LV2MOUNTADDR_431 + (u64) (n - 0x10), (u64) (mem + 0x1200) , (u64) LV2MOUNTADDR_431_CSIZE);
-            
-            flag+=10;
-            }
+                flag += 10;
+           }
         }
     }
 
-    for(n= 0; n < 100; n++) {
+    for(n = 0; n < 100; n++)
+    {
         _poke32(UMOUNT_SYSCALL_OFFSET, 0xFBA100E8); // UMOUNT RESTORE
         usleep(1000);
     }
-    
+
 
     pokeq(0x80000000007EF000ULL, 0ULL);
 
@@ -453,9 +465,9 @@ static int lv2_unpatch_bdvdemu_431(void)
 static int lv2_patch_bdvdemu_431(uint32_t flags)
 {
     int n;
-    int flag = 0;
-    int usb = -1;
-    int pos=-1;
+    int flag =  0;
+    int usb  = -1;
+    int pos  = -1;
     int pos2 = -1;
 
     char * mem = temp_buffer;
@@ -465,7 +477,7 @@ static int lv2_patch_bdvdemu_431(uint32_t flags)
 
     sys8_memcpy((u64) mem, LV2MOUNTADDR_431, 0x10 * 0x118);
 
-    for(n = 0; n < 11; n++) 
+    for(n = 0; n < 11; n++)
     {
         if(flags == (1 << n))
         {
@@ -473,37 +485,38 @@ static int lv2_patch_bdvdemu_431(uint32_t flags)
             break;
         }
     }
-    
-    if(usb >= 0) {
+
+    if(usb >= 0)
+    {
         sprintf(path_name, "CELL_FS_IOS:USB_MASS_STORAGE00%c", 48 + usb);
         sprintf(&path_name[128], "dev_usb00%c", 48 + usb);
     }
 
-    for(n = 0; n< 0x116c; n+= LV2MOUNTADDR_431_ESIZE)
+    for(n = 0; n < 0x116c; n+= LV2MOUNTADDR_431_ESIZE)
     {
-        if(noBDVD && !memcmp(mem + n, "CELL_FS_UTILITY:HDD1", 21) 
+        if(noBDVD && !memcmp(mem + n, "CELL_FS_UTILITY:HDD1", 21)
             && !memcmp(mem + n + 0x69, "dev_bdvd", 9) && mem[n-9]== 1 && mem[n-13]== 1)
         {
             if(pos2 < 0) pos2 = n;
 
             if(usb >= 0)
                 sys8_memcpy(LV2MOUNTADDR_431 + n + 0x69, (u64) "temp_bdvd", 10);
-            
+
             flag++;
         }
-        else 
-        if(!noBDVD && !memcmp(mem + n, "CELL_FS_IOS:PATA0_BDVD_DRIVE", 29) 
+        else
+        if(!noBDVD && !memcmp(mem + n, "CELL_FS_IOS:PATA0_BDVD_DRIVE", 29)
             && (!memcmp(mem + n + 0x69, "dev_bdvd", 9)) && mem[n-9]== 1 && mem[n-13]== 1)
         {
             sys8_memcpy(LV2MOUNTADDR_431 + n + 0x69, (u64) "temp_bdvd", 10);
             flag++;
         }
-        else 
-        if(!noBDVD && usb < 0 && !memcmp(mem + n, "CELL_FS_IOS:BDVD_DRIVE", 29) 
+        else
+        if(!noBDVD && usb < 0 && !memcmp(mem + n, "CELL_FS_IOS:BDVD_DRIVE", 29)
             && !memcmp(mem + n + 0x69, "dev_ps2disc", 12) && mem[n-9]== 1 && mem[n-13]== 1)
         {
             if(pos2 < 0) pos2 = n;
-            
+
             flag++;
         }
         else if(usb >= 0 && !memcmp(mem + n, path_name, 32) && mem[n-9]== 1 && mem[n-13]== 1)
@@ -511,8 +524,8 @@ static int lv2_patch_bdvdemu_431(uint32_t flags)
             if(noBDVD) pos = -1;
             sys8_memcpy(LV2MOUNTADDR_431 + n + 0x69, (u64) "dev_bdvd\0\0", 11);
             sys8_memcpy(LV2MOUNTADDR_431 + n + 0x79, (u64) &path_name[128], 11);
-            
-            flag+=10;
+
+            flag += 10;
         }
         else if(usb < 0 && !memcmp(mem + n, "CELL_FS_UTILITY:HDD0", 21)
                 && !memcmp(mem + n + 0x48, "CELL_FS_UFS", 11)
@@ -522,7 +535,8 @@ static int lv2_patch_bdvdemu_431(uint32_t flags)
         }
     }
 
-    if(pos>0 && pos2>0) {
+    if(pos > 0 && pos2 > 0)
+    {
       u64 dat;
 
       memcpy(mem + 0x1220, mem + pos2 - 0x10, LV2MOUNTADDR_431_CSIZE);
@@ -530,11 +544,11 @@ static int lv2_patch_bdvdemu_431(uint32_t flags)
       memcpy(mem + 0x1200, &dat, 0x8);
       dat = 0x8000000000000000ULL + (u64)UMOUNT_SYSCALL_OFFSET;
       memcpy(mem + 0x1208, &dat, 0x8);
-      n=(int) 0xFBA100E8; // UMOUNT RESTORE
+      n = (int) 0xFBA100E8; // UMOUNT RESTORE
       memcpy(mem + 0x1210, &n, 0x4);
-      n=(int) LV2MOUNTADDR_431_CSIZE; // CDATAS
+      n = (int) LV2MOUNTADDR_431_CSIZE; // CDATAS
       memcpy(mem + 0x1214, &n, 0x4);
-      
+
       memcpy(mem + pos2, mem + pos, LV2MOUNTADDR_431_CSIZE - 0x10);
       memcpy(mem + pos2 + 0x69, "dev_bdvd\0\0", 11);
       memcpy(mem + pos2 + 0x79, "esp_bdvd\0\0", 11);
@@ -543,19 +557,18 @@ static int lv2_patch_bdvdemu_431(uint32_t flags)
       sys8_memcpy(0x80000000007EF000ULL , ((u64) mem + 0x1200), LV2MOUNTADDR_431_CSIZE + 0x20);
       sys8_memcpy(LV2MOUNTADDR_431 + (u64) pos2, ((u64) (mem + pos2)), (u64) (LV2MOUNTADDR_431_CSIZE - 0x10));
 
-      int k;
-      for(k= 0; k < 100; k++) {
+      for(int k = 0; k < 100; k++)
+      {
         PATCH_CALL(UMOUNT_SYSCALL_OFFSET, PAYLOAD_UMOUNT_OFFSET); // UMOUNT ROUTINE PATCH
         usleep(1000);
       }
-      
+
       flag = 100;
     }
 
     poke_syscall = 0;
-    
-    if(flag < 11)
-        return -1;
+
+    if(flag < 11) return -1;
 
     return 0;
 }

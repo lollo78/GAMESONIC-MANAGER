@@ -1,4 +1,4 @@
-/* 
+/*
     (c) 2011-2013 Hermes/Estwald <www.elotrolado.net>
     IrisManager (HMANAGER port) (c) 2011 D_Skywalk <http://david.dantoine.org>
 
@@ -23,49 +23,10 @@
 
 #include "ps3_storage_bin.h"
 
-/*
-#include "mamba_4_46_lz_bin.h"
-#include "mamba_4_53_lz_bin.h"
-#include "mamba_4_55_lz_bin.h"
-*/
-
-/* Mamba NzV bins (Thank's to NzV ;) )*/
-/* http://github.com/NzV/MAMBA */
-
-#include "mamba_355C_lz_bin.h"
-#include "mamba_355D_lz_bin.h"
-#include "mamba_421C_lz_bin.h"
-#include "mamba_421D_lz_bin.h"
-#include "mamba_430C_lz_bin.h"
-#include "mamba_430D_lz_bin.h"
-#include "mamba_431C_lz_bin.h"
-#include "mamba_440C_lz_bin.h"
-#include "mamba_441C_lz_bin.h"
-#include "mamba_441D_lz_bin.h"
-#include "mamba_446C_lz_bin.h"
-#include "mamba_446D_lz_bin.h"
-#include "mamba_450C_lz_bin.h"
-#include "mamba_450D_lz_bin.h"
-#include "mamba_453C_lz_bin.h"
-#include "mamba_453D_lz_bin.h"
-#include "mamba_455C_lz_bin.h"
-#include "mamba_455D_lz_bin.h"
-#include "mamba_460C_lz_bin.h"
-#include "mamba_460D_lz_bin.h"
-#include "mamba_465C_lz_bin.h"
-#include "mamba_465D_lz_bin.h"
-#include "mamba_466C_lz_bin.h"
-#include "mamba_466D_lz_bin.h"
-#include "mamba_470C_lz_bin.h"
-#include "mamba_470D_lz_bin.h"
-#include "mamba_475C_lz_bin.h"
-#include "mamba_475D_lz_bin.h"
-#include "mamba_476C_lz_bin.h"
-#include "mamba_476D_lz_bin.h"
-
 int zlib_decompress(char *source, char *dest, int in_size, int *out_size);
 
 extern int firmware;
+extern char self_path[MAXPATHLEN];
 
 u64 lv2peek(u64 addr);
 u64 lv2poke(u64 addr, u64 value);
@@ -201,29 +162,29 @@ void send_async_data_table(void)
     int n = 18 * 4, m;
     u32 data[4096];
 
-    data[0]= pos + n;
-    data[1]= pos + n + 8;
+    data[0] = pos + n;
+    data[1] = pos + n + 8;
     memcpy((void *) &data[n>>2], (void *) in_51, 8);
     n += 8;
     m = sizeof(out_51);
     memcpy((void *) &data[n>>2], (void *) out_51, m);
-    n= ((n + m + 7) & ~7);
+    n = ((n + m + 7) & ~7);
 
-    data[2]= pos + n;
-    data[3]= pos + n + 8;
+    data[2] = pos + n;
+    data[3] = pos + n + 8;
     memcpy((void *) &data[n>>2], (void *) in_bb, 8);
     n += 8;
     m = sizeof(out_bb);
     memcpy((void *) &data[n>>2], (void *) out_bb, m);
-    n= ((n + m + 7) & ~7);
+    n = ((n + m + 7) & ~7);
 
-    data[4]= pos + n;
-    data[5]= pos + n + 8;
+    data[4] = pos + n;
+    data[5] = pos + n + 8;
     memcpy((void *) &data[n>>2], (void *) in_a4, 8);
     n += 8;
     m = sizeof(out_a4);
     memcpy((void *) &data[n>>2], (void *) out_a4, m);
-    n= ((n + m + 7) & ~7);
+    n = ((n + m + 7) & ~7);
 
     data[6]= pos + n;
     data[7]= pos + n + 8;
@@ -231,41 +192,41 @@ void send_async_data_table(void)
     n += 8;
     m = sizeof(out_ad);
     memcpy((void *) &data[n>>2], (void *) out_ad, m);
-    n= ((n + m + 7) & ~7);
+    n = ((n + m + 7) & ~7);
 
-    data[8]= pos + n;
-    data[9]= pos + n + 8;
+    data[8] = pos + n;
+    data[9] = pos + n + 8;
     memcpy((void *) &data[n>>2], (void *) in_43, 8);
     n += 8;
     m = sizeof(out_43);
     memcpy((void *) &data[n>>2], (void *) out_43, m);
-    n= ((n + m + 7) & ~7);
+    n = ((n + m + 7) & ~7);
 
-    data[10]= pos + n;
-    data[11]= pos + n + 8;
+    data[10] = pos + n;
+    data[11] = pos + n + 8;
     memcpy((void *) &data[n>>2], (void *) in_46, 8);
     n += 8;
     m = sizeof(out_46);
     memcpy((void *) &data[n>>2], (void *) out_46, m);
-    n= ((n + m + 7) & ~7);
+    n = ((n + m + 7) & ~7);
 
-    data[12]= pos + n;
-    data[13]= pos + n + 8;
+    data[12] = pos + n;
+    data[13] = pos + n + 8;
     memcpy((void *) &data[n>>2], (void *) in_46b, 8);
     n += 8;
     m = sizeof(out_46b);
     memcpy((void *) &data[n>>2], (void *) out_46b, m);
-    n= ((n + m + 7) & ~7);
+    n = ((n + m + 7) & ~7);
 
-    data[14]= pos + n;
-    data[15]= pos + n + 8;
+    data[14] = pos + n;
+    data[15] = pos + n + 8;
     memcpy((void *) &data[n>>2], (void *) in_46c, 8);
     n += 8;
     m = sizeof(out_51);
     memcpy((void *) &data[n>>2], (void *) out_46c, m);
-    n= ((n + m + 7) & ~7);
+    n = ((n + m + 7) & ~7);
 
-    data[16]=data[17]=0;
+    data[16] = data[17]=0;
 
     sys8_memcpy(0x8000000000000000ULL + (u64) pos, (u64) data, (u64) n);
 
@@ -280,212 +241,226 @@ static void write_htab(void)
     lv1_reg regs_i, regs_o;
     u32 val;
 
-    while(cont < 0x80) {
+    while(cont < 0x80)
+    {
         val = (cont << 7);
 
-        regs_i.reg3 = 0;
-        regs_i.reg4 = (cont << 3ULL);
-        regs_i.reg5 = lv2peek(0x800000000f000000ULL | ((u64) val));
-        regs_i.reg6 = lv2peek(0x800000000f000008ULL | ((u64) val));
-        regs_i.reg6 = (regs_i.reg6  & 0xff0000ULL) | 0x190ULL;
-        regs_i.reg11= 1;
+        regs_i.reg3  = 0;
+        regs_i.reg4  = (cont << 3ULL);
+        regs_i.reg5  = lv2peek(0x800000000f000000ULL | ((u64) val));
+        regs_i.reg6  = lv2peek(0x800000000f000008ULL | ((u64) val));
+        regs_i.reg6  = (regs_i.reg6  & 0xff0000ULL) | 0x190ULL;
+        regs_i.reg11 = 1;
 
         sys8_lv1_syscall(&regs_i, &regs_o);
 
         cont++;
-
     }
 }
 
 
-void load_ps3_discless_payload()
+bool load_ps3_discless_payload()
 {
+    if(lv2peek(0x80000000000004E8ULL)) goto skip_the_load; //payload already loaded
 
-    u64 *addr= (u64 *) memalign(8, ps3_storage_bin_size + 31);
+    if(!ps3_storage_bin_size) return false;
 
-    if(!addr) {
-        DrawDialogOK("Shit! full memory");
-        exit(0);
-    }
-
-    if(!syscall_base) {
+    if(!syscall_base)
+    {
         DrawDialogOK("syscall_base is empty!");
-        return;
+        return false;
     }
-    
-    if(lv2peek(0x80000000000004E8ULL)) goto skip_the_load;
 
     write_htab();
 
     PAYLOAD_BASE = 0x80000000007FE000ULL;
 
-    memcpy((char *) addr, (char *) ps3_storage_bin, ps3_storage_bin_size);
+    u64 *addr = (u64 *) memalign(8, ps3_storage_bin_size + 31);
 
-    addr[1] = syscall_base;
-    addr[2] += PAYLOAD_BASE; // sys 40
-    addr[3] = lv2peek(syscall_base + (u64) (40 * 8));
-    addr[4] += PAYLOAD_BASE;
-    addr[5] = lv2peek(syscall_base + (u64) (130 * 8));
-    addr[6] += PAYLOAD_BASE;
-    addr[7] = lv2peek(syscall_base + (u64) (879 * 8));
-    addr[8] += PAYLOAD_BASE;
-    addr[9] = lv2peek(syscall_base + (u64) (864 * 8));
-    addr[10] += PAYLOAD_BASE;
-    addr[11] = lv2peek(syscall_base + (u64) (619 * 8));
-    addr[12] += PAYLOAD_BASE;
-    addr[13] = lv2peek(syscall_base + (u64) (837 * 8));
-    addr[14] += PAYLOAD_BASE;
-    addr[15] = lv2peek(syscall_base + (u64) (609 * 8));
-
-    int n;
-
-    for(n=0;n<200;n++) {
-
-    lv2poke(0x80000000000004E8ULL, PAYLOAD_BASE);
-
-    sys8_memcpyinstr(PAYLOAD_BASE, (u64) addr, (u64) ((ps3_storage_bin_size + 7) & ~7));
-
-    lv2poke(syscall_base + (u64) (40 * 8), PAYLOAD_BASE + 0x10ULL);  // syscall management
-    lv2poke(syscall_base + (u64) (130 * 8), PAYLOAD_BASE + 0x20ULL); // sys_event_queue_receive
-    lv2poke(syscall_base + (u64) (879 * 8), PAYLOAD_BASE + 0x30ULL); // sys_ss_media_id
-    lv2poke(syscall_base + (u64) (864 * 8), PAYLOAD_BASE + 0x40ULL); // storage_manager
-    lv2poke(syscall_base + (u64) (619 * 8), PAYLOAD_BASE + 0x50ULL); // sys_storage_async_send_device_command
-    lv2poke(syscall_base + (u64) (837 * 8), PAYLOAD_BASE + 0x60ULL); // sys_fs_mount
-    lv2poke(syscall_base + (u64) (609 * 8), PAYLOAD_BASE + 0x70ULL); // sys_storage_get_device_info 
-
-    usleep(10000);
-    }
-
-    sleep(1);
-skip_the_load:
-    free(addr);
-
-    send_async_data_table();
-}
-
-
-void load_ps3_mamba_payload()
-{
-
-    u64 *addr= (u64 *) memalign(128, 0x20000);
-
-    if(!addr) {
-        DrawDialogOK("Shit! full memory");
+    if(!addr)
+    {
+        DrawDialogOK("Memory is full!");
         exit(0);
     }
 
-    if(!syscall_base) {
-        DrawDialogOK("syscall_base is empty!");
-        free(addr);
-        return;
-    }
-    
-    //PAYLOAD_BASE = 0x80000000007E4000ULL;
+    memcpy((char *) addr, (char *) ps3_storage_bin, ps3_storage_bin_size);
 
-    if(sys8_mamba()==0x666) goto skip_the_load;  // MAMBA is running yet
+    addr[1]  =  syscall_base;
+    addr[2]  += PAYLOAD_BASE; // sys 40
+    addr[3]  =  lv2peek(syscall_base + (u64) (40  * 8));
+    addr[4]  += PAYLOAD_BASE;
+    addr[5]  =  lv2peek(syscall_base + (u64) (130 * 8));
+    addr[6]  += PAYLOAD_BASE;
+    addr[7]  =  lv2peek(syscall_base + (u64) (879 * 8));
+    addr[8]  += PAYLOAD_BASE;
+    addr[9]  =  lv2peek(syscall_base + (u64) (864 * 8));
+    addr[10] += PAYLOAD_BASE;
+    addr[11] =  lv2peek(syscall_base + (u64) (619 * 8));
+    addr[12] += PAYLOAD_BASE;
+    addr[13] =  lv2peek(syscall_base + (u64) (837 * 8));
+    addr[14] += PAYLOAD_BASE;
+    addr[15] =  lv2peek(syscall_base + (u64) (609 * 8));
+
+    for(u8 n = 0; n < 100; n++)
+    {
+        lv2poke(0x80000000000004E8ULL, PAYLOAD_BASE);
+
+        sys8_memcpyinstr(PAYLOAD_BASE, (u64) addr, (u64) ((ps3_storage_bin_size + 7) & ~7));
+
+        lv2poke(syscall_base + (u64) (40  * 8), PAYLOAD_BASE + 0x10ULL); // syscall management
+        lv2poke(syscall_base + (u64) (130 * 8), PAYLOAD_BASE + 0x20ULL); // sys_event_queue_receive
+        lv2poke(syscall_base + (u64) (879 * 8), PAYLOAD_BASE + 0x30ULL); // sys_ss_media_id
+        lv2poke(syscall_base + (u64) (864 * 8), PAYLOAD_BASE + 0x40ULL); // storage_manager
+        lv2poke(syscall_base + (u64) (619 * 8), PAYLOAD_BASE + 0x50ULL); // sys_storage_async_send_device_command
+        lv2poke(syscall_base + (u64) (837 * 8), PAYLOAD_BASE + 0x60ULL); // sys_fs_mount
+        lv2poke(syscall_base + (u64) (609 * 8), PAYLOAD_BASE + 0x70ULL); // sys_storage_get_device_info
+
+        usleep(1000);
+    }
+
+    sleep(1);
+
+    free(addr);
+
+skip_the_load:
+    send_async_data_table();
+
+    return true;
+}
+
+/*
+static u64 lv1poke(u64 addr, u64 value)
+{
+    lv2syscall2(9, (u64) addr, (u64) value);
+    return_to_user_prog(u64);
+}
+*/
+
+#define MAMBA_PRX_LOADER_INSTALL_OFFSET				0x80000000007F0000ULL
+#define MAMBA_PRX_LOADER_SYSCALL_NUM				1022
+
+#define SYSCALL1022_OPCODE_LOAD_MAMBA			0x7755
+
+int syscall_load_mamba(char* payload_path)
+{
+    lv2syscall2(MAMBA_PRX_LOADER_SYSCALL_NUM, SYSCALL1022_OPCODE_LOAD_MAMBA, (uint64_t)payload_path);
+	return_to_user_prog(int);
+}
+
+bool load_ps3_mamba_payload()
+{
+    bool use_lz = true;
+
+    if(sys8_mamba() == 0x666) return true;  // MAMBA is already running
+
+    if(!syscall_base)
+    {
+        DrawDialogOK("syscall_base is empty!");
+        return false;
+    }
 
     write_htab();
 
-    memset((char *) addr, 0, 0x20000);
-    int out_size;
 
-    /*
-    if(firmware == 0x446C)
-        zlib_decompress((char *) mamba_4_46_lz_bin, (char *) addr, mamba_4_46_lz_bin_size, &out_size);
-    else if(firmware == 0x453C)
-        zlib_decompress((char *) mamba_4_53_lz_bin, (char *) addr, mamba_4_53_lz_bin_size, &out_size);
-    else if(firmware == 0x455C)
-        zlib_decompress((char *) mamba_4_55_lz_bin, (char *) addr, mamba_4_55_lz_bin_size, &out_size);
-    else {
-        DrawDialogOK("MAMBA is not supported for this CFW");
-        free(addr);
-        return;
+    char payload_file[MAXPATHLEN];
+    int out_size = 0, file_size = 0;
+
+    ///// PRX_LOADER PAYLOAD FILE /////
+    sprintf(payload_file, "%s/USRDIR/payloads/payload_%X.bin", self_path, firmware);
+
+    uint64_t *payload = (uint64_t *) LoadFile((char *) payload_file, &file_size);
+    ///////////////////////////////////
+
+
+
+    ///// MAMBA_PRX_LOADER_INSTALL /////
+    lv2poke(0x80000000000004E8ULL, 0);						//Disable the disc-less payload (if it was previously loaded)
+    lv2poke(0x8000000000003D90ULL, 0x386000014E800020ULL);  //Patch permission 4.xx, usually "fixed" by warez payload
+
+    if(file_size > 3000 && file_size < 4200)
+    {
+        for(int i = 0; i < (file_size / 8); i++) lv2poke(MAMBA_PRX_LOADER_INSTALL_OFFSET + (i * 8), payload[i]);
+
+        free(payload);
+
+        // install prx loader payload
+        const uint64_t payload_opd = MAMBA_PRX_LOADER_INSTALL_OFFSET + file_size + 0x10;
+        lv2poke(payload_opd, MAMBA_PRX_LOADER_INSTALL_OFFSET);
+        lv2poke(syscall_base + (8 * MAMBA_PRX_LOADER_SYSCALL_NUM), payload_opd);
+
+        // install mamba 3.x
+        sprintf(payload_file, "%s/USRDIR/mamba/mamba_%X.bin", self_path, firmware);
+
+        if(file_exists(payload_file))
+        {
+            if (syscall_load_mamba(payload_file) != 0) return false;
+            return true;
+        }
     }
-    */
+    /////////////////////////////////////
 
 
-    if(firmware == 0x355C)
-        zlib_decompress((char *) mamba_355C_lz_bin, (char *) addr, mamba_355C_lz_bin_size, &out_size);
-    else if(firmware == 0x355D)
-        zlib_decompress((char *) mamba_355D_lz_bin, (char *) addr, mamba_355D_lz_bin_size, &out_size);
-    else if(firmware == 0x421C)
-        zlib_decompress((char *) mamba_421C_lz_bin, (char *) addr, mamba_421C_lz_bin_size, &out_size);
-    else if(firmware == 0x421D)
-        zlib_decompress((char *) mamba_421D_lz_bin, (char *) addr, mamba_421D_lz_bin_size, &out_size);
-    else if(firmware == 0x430C)
-        zlib_decompress((char *) mamba_430C_lz_bin, (char *) addr, mamba_430C_lz_bin_size, &out_size);
-    else if(firmware == 0x430D)
-        zlib_decompress((char *) mamba_430D_lz_bin, (char *) addr, mamba_430D_lz_bin_size, &out_size);
-    else if(firmware == 0x431C)
-        zlib_decompress((char *) mamba_431C_lz_bin, (char *) addr, mamba_431C_lz_bin_size, &out_size);
-    else if(firmware == 0x440C)
-        zlib_decompress((char *) mamba_440C_lz_bin, (char *) addr, mamba_440C_lz_bin_size, &out_size);
-    else if(firmware == 0x441C)
-        zlib_decompress((char *) mamba_441C_lz_bin, (char *) addr, mamba_441C_lz_bin_size, &out_size);
-    else if(firmware == 0x441D)
-        zlib_decompress((char *) mamba_441D_lz_bin, (char *) addr, mamba_441D_lz_bin_size, &out_size);
-    else if(firmware == 0x446C)
-        zlib_decompress((char *) mamba_446C_lz_bin, (char *) addr, mamba_446C_lz_bin_size, &out_size);
-    else if(firmware == 0x446D)
-        zlib_decompress((char *) mamba_446D_lz_bin, (char *) addr, mamba_446D_lz_bin_size, &out_size);
-    else if(firmware == 0x450C)
-        zlib_decompress((char *) mamba_450C_lz_bin, (char *) addr, mamba_450C_lz_bin_size, &out_size);
-    else if(firmware == 0x450D)
-        zlib_decompress((char *) mamba_450D_lz_bin, (char *) addr, mamba_450D_lz_bin_size, &out_size);
-    else if(firmware == 0x453C)
-        zlib_decompress((char *) mamba_453C_lz_bin, (char *) addr, mamba_453C_lz_bin_size, &out_size);
-    else if(firmware == 0x453D)
-        zlib_decompress((char *) mamba_453D_lz_bin, (char *) addr, mamba_453D_lz_bin_size, &out_size);
-    else if(firmware == 0x455C)
-        zlib_decompress((char *) mamba_455C_lz_bin, (char *) addr, mamba_455C_lz_bin_size, &out_size);
-    else if(firmware == 0x455D)
-        zlib_decompress((char *) mamba_455D_lz_bin, (char *) addr, mamba_455D_lz_bin_size, &out_size);
-    else if(firmware == 0x460C)
-        zlib_decompress((char *) mamba_460C_lz_bin, (char *) addr, mamba_460C_lz_bin_size, &out_size);
-    else if(firmware == 0x460D)
-        zlib_decompress((char *) mamba_460D_lz_bin, (char *) addr, mamba_460D_lz_bin_size, &out_size);
-    else if(firmware == 0x465C)
-        zlib_decompress((char *) mamba_465C_lz_bin, (char *) addr, mamba_465C_lz_bin_size, &out_size);
-    else if(firmware == 0x465D)
-        zlib_decompress((char *) mamba_465D_lz_bin, (char *) addr, mamba_465D_lz_bin_size, &out_size);
-    else if(firmware == 0x466C)
-        zlib_decompress((char *) mamba_466C_lz_bin, (char *) addr, mamba_466C_lz_bin_size, &out_size);
-    else if(firmware == 0x466D)
-        zlib_decompress((char *) mamba_466D_lz_bin, (char *) addr, mamba_466D_lz_bin_size, &out_size);
-    else if(firmware == 0x470C)
-        zlib_decompress((char *) mamba_470C_lz_bin, (char *) addr, mamba_470C_lz_bin_size, &out_size);
-    else if(firmware == 0x470D)
-        zlib_decompress((char *) mamba_470D_lz_bin, (char *) addr, mamba_470D_lz_bin_size, &out_size);
-    else if(firmware == 0x475C)
-        zlib_decompress((char *) mamba_475C_lz_bin, (char *) addr, mamba_475C_lz_bin_size, &out_size);
-    else if(firmware == 0x475D)
-        zlib_decompress((char *) mamba_475D_lz_bin, (char *) addr, mamba_475D_lz_bin_size, &out_size);
-    else if(firmware == 0x476C)
-        zlib_decompress((char *) mamba_476C_lz_bin, (char *) addr, mamba_476C_lz_bin_size, &out_size);
-    else if(firmware == 0x476D)
-        zlib_decompress((char *) mamba_476D_lz_bin, (char *) addr, mamba_476D_lz_bin_size, &out_size);
-    else {
-        DrawDialogOK("MAMBA is not supported for this CFW");
-        free(addr);
-        return;
+    ///// MAMBA 2.x /////
+    sprintf(payload_file, "%s/USRDIR/mamba/mamba_%X.lz.bin", self_path, firmware);
+
+    if(file_exists(payload_file) == false)
+    {
+        sprintf(payload_file, "/dev_hdd0/game/IRISMAN00/USRDIR/mamba/mamba_%X.lz.bin", firmware);
+
+        if(file_exists(payload_file) == false)
+            {sprintf(payload_file, "%s/USRDIR/mamba/mamba_%X.bin", self_path, firmware); use_lz = false;}
     }
+
+    if(file_exists(payload_file) == false) return false;
+    /////////////////////
+
+    u64 *addr = (u64 *) memalign(128, 0x20000);
+
+    if(!addr)
+    {
+        DrawDialogOK("Memory is full");
+        exit(0);
+    }
+
+    memset((char *) addr, 0, 0x20000); file_size = 0;
+
+    char *mamba_payload = LoadFile((char *) payload_file, &file_size);
+
+    if(file_size < 20000)
+    {
+        if(mamba_payload) free(mamba_payload);
+
+        free(addr);
+        return false;
+    }
+
+    if(use_lz)
+    {
+        zlib_decompress((char *) mamba_payload, (char *) addr, file_size, &out_size);
+    }
+    else
+    {
+        out_size = file_size; memcpy(addr, mamba_payload, out_size);
+    }
+
+    if(mamba_payload) free(mamba_payload);
 
     out_size = (out_size + 0x4000) & ~127;
     u64 lv2_mem = sys8_alloc(out_size, 0x27ULL); // alloc LV2 memory
 
-    if(!lv2_mem) {
-        DrawDialogOK("Shit! LV2 full memory");
+    if(!lv2_mem)
+    {
         free(addr);
+        DrawDialogOK("LV2 memory is full!");
         exit(0);
     }
 
-    int n;
-
-    for(n=0;n<2000;n++) {
-
-        lv2poke(lv2_mem, lv2_mem + 0x8ULL);
+    // install mamba in syscall 40 address ( when mamba is loaded, syscall 40 is disabled and syscalls 6,7,8,9,10,11 are created )
+    for(u8 n = 0; n < 100; n++)
+    {
+            lv2poke(lv2_mem, lv2_mem + 0x8ULL);
         sys8_memcpy(lv2_mem + 8, (u64) addr, out_size);
-        
+
 
         lv2poke(syscall_base + (u64) (40 * 8), lv2_mem);  // syscall management
         lv2poke(0x80000000000004E8ULL, 0);
@@ -493,10 +468,7 @@ void load_ps3_mamba_payload()
         usleep(1000);
     }
 
-   // sleep(1);
 
-skip_the_load:
     free(addr);
-
+    return true;
 }
-
