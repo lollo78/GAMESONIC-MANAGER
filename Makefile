@@ -19,7 +19,7 @@ SFOXML		:=	sfo.xml
 # usage:  make BUILD_STEALTH=yes
 ifndef BUILD_STEALTH
 TITLE		:=	Gamesonic Manager - v3.94
-APPID		:=	IMANAGER4
+APPID		:=	GAMSMNGR4
 else
 TITLE		:=	LEMMINGS™ Trial Version
 APPID		:=	NPUA80034
