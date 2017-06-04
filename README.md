@@ -25,6 +25,8 @@ Gamesonic Manageer fork di Iris Manager
 -subdub
 -Hermes
 -Wanin & Drizzt
+-STLcardsWS for logo
+-psx-place.com,playstationhax.it and gamesandconsoles.org
 
 
 
