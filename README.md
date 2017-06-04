@@ -14,11 +14,11 @@ Gamesonic Manageer fork di Iris Manager
 - Hermes/Estwald       : Author
 - D_Skywalk            : Author
 - Orion                : Author for the first fork
-- TheheroGac           : Author for new Fork
+- TheheroGac           : Author for the new Fork
 - Aldo Vargas          
-- Joonie
+- Joonie86
 - Habib
--Marcan
+ -Marcan
 -KaKaRoTo
 -Aaron
 -Kmeaw
