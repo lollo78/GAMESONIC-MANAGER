@@ -1,10 +1,7 @@
 Iris Manager
 =============
 
-  Este es el código fuente de Iris Manager portado a PSL1GHT v2. El código está bajo licencia GPL v3 
-  y los autores ponen como condición adicional que si tu modificas el proyecto lo hagas bajo otro 
-  nombre distinto al de "Iris Manager". En este mismo repositorio encontrarás el entorno necesario para
-  poder compilar éste proyecto
+ 
 
   ----------------------------------------------------------------------------------------------------------
 
@@ -12,6 +9,12 @@ Iris Manager
   release it with the condition that if the project is modified by others developers, they must release it
   with other different name of "Iris Manager". You can find the tools to compile the source code in the same
   repository.
+  
+  -----------------------------------------------------------------------------------------------------------
+  Questo è il codice sorgente di Iris Manager su v2 PSL1GHT. Il codice è sotto licenza GPL v3
+   e gli autori mettono come condizione aggiuntiva che se si modifica il progetto di chiamarlo con un altro
+   nome diverso da "Iris Manager". In questo stesso repository troverete l'ambiente necessario per
+   per compilare questo progetto
 
   Credits (App/only):
 ====================
