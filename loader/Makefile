@@ -13,7 +13,7 @@ endif
 
 # usage:  make BUILD_STEALTH=yes
 ifndef BUILD_STEALTH
-APPID		:=	IMANAGER4
+APPID		:=	IRISMAN00
 else
 APPID		:=	NPUA80034
 endif
