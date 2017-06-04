@@ -1,6 +1,7 @@
 [Language]
 VERSION = 2
-DESCRIPTION = DEFAULT ENGLISH
+DESCRIPTION = DEFAULT PERSAIN
+REVERSE = ON
 
 # VIDEO - ADJUST
 VIDEOADJUST_POSITION    = ﺪﻴﻨﻛ ﻩﺩﺎﻔﺘﺳا (+Y) ﻦﻴﻳﺎﭘ ﻭ (-Y) ﺎﻟﺎﺑ / (+X) ﺖﺳاﺭ / (-X) ﭗﭼ يﺎﻫ ﻪﻤﻛﺩ زا ﺶﻳﺎﻤﻧ ﻪﺤﻔﺻ ﻢﻴﻆﻨﺗ یاﺮﺑ
@@ -21,10 +22,12 @@ DRAWSCREEN_FAVORITES    = ﺎﻫ هﺪﻳﺰﮔﺮﺑ
 DRAWSCREEN_PAGE         = ﻪﺤﻔﺻ
 DRAWSCREEN_GAMES        = ﺎﻫ ﻱﺯﺎﺑ ﺩاﺪﻌﺗ
 DRAWSCREEN_PLAY         = Play
-DRAWSCREEN_SOPTIONS     = يﺯﺎﺑ تﺎﻤﻴﻆﻨﺗ : SELECT
-DRAWSCREEN_SDELETE      = SELECT: Delete Favourite
+DRAWSCREEN_SOPTIONS     = يﺯﺎﺑ تﺎﻤﻴﻆﻨﺗ : TRIANGLE
+DRAWSCREEN_SDELETE      = دكمه :SELECT حذف برگزيده
 DRAWSCREEN_STGLOPT      = ﻰﻠﺻا تﺎﻤﻴﻆﻨﺗ : START
 DRAWSCREEN_EXITXMB      = khoroj az XMB?
+DRAWSCREEN_RESTART      = Restart the PS3 System?
+DRAWSCREEN_SHUTDOWN     = Turn Off the PS3 System?
 DRAWSCREEN_CANRUNFAV    = Cannot run this favourite
 DRAWSCREEN_MARKNOTEXEC  = Marked as non executable. Trying to install in HDD0 cache
 DRAWSCREEN_MARKNOTEX4G  = Marked as not executable - Contains splited files >= 4GB
@@ -46,6 +49,13 @@ DRAWGMOPT_TSTGAME       = ﻱﺯﺎﺑ ﺖﺴﺗ
 DRAWGMOPT_CPYEBOOTGAME  = USB زا EBOOT.BIN ﻰﭙﻛ
 DRAWGMOPT_CPYTOFAV      = ﺎﻫ هﺪﻳﺰﮔﺮﺑ ﻪﺑ ﻰﭙﻛ
 DRAWGMOPT_DELFMFAV      = ﺎﻫ هﺪﻳﺰﮔﺮﺑ زا فﺬﺣ
+DRAWGMOPT_UNMTDEV       = Unmount USB00%i Device
+
+DRAWGMOPT_EXTRACTISO    = Extract ISO
+DRAWGMOPT_BUILDISO      = Build ISO
+DRAWGMOPT_MKISO         = Select a device to Build the ISO
+DRAWGMOPT_XTISO         = Select a device to Extract the ISO
+DRAWGMOPT_CPYISO        = Select a device to Copy the ISO
 
 DRAWGMOPT_FIXCOMPLETE   = Fix Permissions Done!
 DRAWGMOPT_CPYOK         = copied successfully
@@ -66,17 +76,23 @@ DRAWGMCFG_EXTBOOT       = Extern EBOOT.BIN
 DRAWGMCFG_BDEMU         = BD Emu ﻱﺯﺎﺳ ﻪﻴﺒﺷ
 DRAWGMCFG_EXTHDD0GAME   = Ext /dev_hdd0/game
 DRAWGMCFG_SAVECFG       = يﺪﻨﺑ ﺮﻛﻴﭘ هﺮﻴﺧﺫ
+DRAWGMCFG_DIRECTBOOT    = Direct Boot
 
 # DRAW GLOBAL OPTIONS
 DRAWGLOPT_OPTS          = ﻲﻠﺻا ﺕﺎﻤﻴﻈﻨﺗ
 DRAWGLOPT_SCRADJUST     = ﺮﻳﻮﺼﺗ تﺎﻤﻴﻆﻨﺗ
 DRAWGLOPT_CHANGEGUI     = ﻱﺮﺑﺭﺎﻛ ﻂﺑاﺭ ﻲﻜﻴﻓاﺮﮔ ﺮﻴﻴﻐﺗ
 DRAWGLOPT_CHANGEBCK     = ﻪﻨﻴﻣﺯ ﺲﭘ ﮓﻧﺭ ﺮﻴﻴﻐﺗ
+DRAWGLOPT_BCKPICNONE    = Background Picture: None
+DRAWGLOPT_BCKPICRAND    = Background Picture: Random
+DRAWGLOPT_BCKPIC1       = Background Picture: PIC1.PNG
+DRAWGLOPT_BCKPICT       = Background Picture:
 DRAWGLOPT_CHANGEDIR     = ﺎﻫ يﺯﺎﺑ ﻪﺷﻮﭘ ﺮﻴﺴﻣ ﺮﻴﻴﻐﺗ
 DRAWGLOPT_SWMUSICOFF    = شﻮﻣﺎﺧ ﻰﻘﻴﺳﻮﻣ
 DRAWGLOPT_SWMUSICON     = ﻦﺷﻭﺭ ﻰﻘﻴﺳﻮﻣ
 DRAWGLOPT_INITFTP       = Initialize FTP server
 DRAWGLOPT_TOOLS         = ﺎﻫﺭاﺰﺑا
+DRAWGLOPT_REFRESH       = Game List
 DRAWGLOPT_CREDITS       = نﺎﮔ ﻩﺪﻨﻨﻛ ﻪﻴﻬﺗ
 DRAWGLOPT_FTPINITED     = Server FTP initialized@Do you want auto-enable FTP service on init?
 DRAWGLOPT_FTPARINITED   = Server FTP already initialized
@@ -85,18 +101,16 @@ DRAWGLOPT_FTPSTOPED     = Server FTP Stopped@Removed FTP service on init.
 # DRAW TOOLS
 DRAWTOOLS_TOOLS         = ﺎﻫﺭاﺰﺑا
 DRAWTOOLS_DELCACHE      = Cache ﺭاﺰﺑا ﻑﺬﺣ
-# DRAWTOOLS_SECDISABLE    = Press To Disable Syscall Security
-# DRAWTOOLS_SECENABLE     = Press To Enable Syscall Security
 DRAWTOOLS_PKGTOOLS      = .PKG ﺐﺼﻧ
-DRAWTOOLS_COPYFROM      = Iris ﻪﺷﻮﭘ ﻪﺑ /dev_usb/iris ﻪﺷﻮﭘ زا ﻰﭙﻛ
+DRAWTOOLS_COPYFROM      = IRISMAN ﻪﺷﻮﭘ ﻪﺑ /dev_usb/iris ﻪﺷﻮﭘ زا ﻰﭙﻛ
 DRAWTOOLS_WITHBDVD      = BDVD ﻝﺮﺘﻨﻛ ﺎﺑ
-DRAWTOOLS_NOBDVD        = BDVD لﺮﺘﻨﻛ نﻭﺪﺑ 
-DRAWTOOLS_NOBDVD2       = ﻚﺴﻳﺩ ﻥﻭﺪﺑ payload
+DRAWTOOLS_NOBDVD        = BDVD لﺮﺘﻨﻛ نﻭﺪﺑ
+DRAWTOOLS_NOBDVD2       = Cobra / ﻚﺴﻳﺩ ﻥﻭﺪﺑ payload
 DRAWTOOLS_ARCHIVEMAN    =  ﺮﺠﻴﻨﻣ ﻮﻴﺷﺭآ
 DRAWTOOLS_COVERSDOWN    = Covers Download
 
 # MAIN - OTHERS
-DRAWCACHE_CACHE         = Delete Cache Tool
+DRAWCACHE_CACHE         = حذف ابزار كش
 DRAWCACHE_ERRNEEDIT     = You need %1.2f GB free to install
 DRAWCACHE_ASKTODEL      = Delete %s Cache?
 PATCHBEMU_ERRNOUSB      = BDEMU is only for USB devices
@@ -186,16 +200,17 @@ PKG_ERRLICON            = Error Loading ICON file
 PKG_ERRMOVING           = Error moving .PKG
 
 # DRAW_PSX
-DRAWPSX_EMULATOR        = ﺯﺎﺳ ﻪﻴﺒﺷ ﻉﻮﻧ
-DRAWPSX_VIDEOPS         = PSX ﺮﻳﻮﺼﺗ تﺎﻤﻴﻆﻨﺗDRAWPSX_SAVEASK         = Save PSX options?
+DRAWPSX_EMULATOR        = شبيه ساز
+DRAWPSX_VIDEOPS         = PSX تنظيمات تصوير
+DRAWPSX_SAVEASK         = Save PSX options?
 DRAWPSX_SAVED           = PSX Options Saved
-DRAWPSX_VIDEOTHER       = ﻩﺮﻴﻏ ﻭ ﺮﻳﻮﺼﺗ ﺕﺎﻤﻴﻈﻨﺗ
-DRAWPSX_VIDEOMODE       = ﺮﻳﻮﺼﺗ ﺖﻟﺎﺣ
+DRAWPSX_VIDEOTHER       = تصوير / ديگر
+DRAWPSX_VIDEOMODE       = حالت تصوير
 DRAWPSX_VIDEOASP        = (480/576) ﺮﻳﻮﺼﺗ ﺖﺒﺴﻧ
-DRAWPSX_FULLSC          = ﻪﺤﻔﺻ ﻡﺎﻤﺗ
-DRAWPSX_SMOOTH          = Smooting
-DRAWPSX_EXTROM          = ﻲﺟﺭﺎﺧ ROM
-DRAWPSX_FORMAT          = Internal_MC ﻥﺩﺮﻛ ﺖﻣﺮﻓ
+DRAWPSX_FULLSC          = تمام صفحه
+DRAWPSX_SMOOTH          = -Smoothing
+DRAWPSX_EXTROM          = خارجي ROM
+DRAWPSX_FORMAT          = فرمت كردن Internal_MC
 DRAWPSX_ASKFORMAT       = Want you format Internal_MC?@@You LOSE the saves in this operation
 DRAWPSX_ERRWRITING      = Error writing the file (Device full?)
 DRAWPSX_BUILDISO        = Building custom ISO...
@@ -223,3 +238,17 @@ OUT_OFMEMORY            = Out of Memory
 OPERATION_DONE          = Done!
 PLUG_STORAGE1           = Remember you to plug an USB storage massive device to create the fake disc event
 PLUG_STORAGE2           = Fake Disc Inserted
+
+# GAME LIST
+GAMELIST_ALLGAMES       = All Games
+GAMELIST_PS3GAMES       = PS3 Games
+GAMELIST_VIDEOS         = Videos
+GAMELIST_NETGAMES       = Network Games (via webMAN)
+GAMELIST_STATUS1        = SQUARE  All Retro games       <  >  Select Retro mode       X  Select List
+GAMELIST_STATUS2        = X  Select Game List mode             O  Go Back
+GAMELIST_SCANNING0      = Scanning all games...
+GAMELIST_SCANNING1      = Scanning PS3 games...
+GAMELIST_SCANNING2      = Scanning PlayStation games...
+GAMELIST_SCANNING3      = Scanning Videos...
+GAMELIST_SCANNING4      = Scanning Retro games...
+GAMELIST_SCANNING5      = Scanning network games (webMAN)...

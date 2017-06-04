@@ -25,6 +25,8 @@ DRAWSCREEN_SOPTIONS     = SELECT: Spillvalg
 DRAWSCREEN_SDELETE      = SELECT: slett favoritt
 DRAWSCREEN_STGLOPT      = START: Globale valg
 DRAWSCREEN_EXITXMB      = Avslutt til XMB?
+DRAWSCREEN_RESTART      = Restarter PS3-systemet?
+DRAWSCREEN_SHUTDOWN     = Slå av PS3-systemet?
 DRAWSCREEN_CANRUNFAV    = Kan ikke kjøre denne favoritten
 DRAWSCREEN_MARKNOTEXEC  = Merket som ikke kjørbar. Prøver å installere på HDD0
 DRAWSCREEN_MARKNOTEX4G  = Merket som ikke kjørbar - Inneholder delte filer >= 4GB
@@ -46,6 +48,13 @@ DRAWGMOPT_TSTGAME       = Test spill
 DRAWGMOPT_CPYEBOOTGAME  = Kopier EBOOT.BIN fra USB
 DRAWGMOPT_CPYTOFAV      = Kopier til favoritter
 DRAWGMOPT_DELFMFAV      = Slett fra favoritter
+DRAWGMOPT_UNMTDEV       = Unmount USB00%i Device
+
+DRAWGMOPT_EXTRACTISO    = Extract ISO
+DRAWGMOPT_BUILDISO      = Build ISO
+DRAWGMOPT_MKISO         = Select a device to Build the ISO
+DRAWGMOPT_XTISO         = Select a device to Extract the ISO
+DRAWGMOPT_CPYISO        = Select a device to Copy the ISO
 
 DRAWGMOPT_FIXCOMPLETE   = Fiksing av priviliegier ferdig!
 DRAWGMOPT_CPYOK         = Kopiering vellykket
@@ -66,17 +75,23 @@ DRAWGMCFG_EXTBOOT       = Ekstern EBOOT.BIN
 DRAWGMCFG_BDEMU         = BD Emu
 DRAWGMCFG_EXTHDD0GAME   = Eks /dev_hdd0/game
 DRAWGMCFG_SAVECFG       = Lagre instillinger
+DRAWGMCFG_DIRECTBOOT    = Direct Boot
 
 # DRAW GLOBAL OPTIONS
 DRAWGLOPT_OPTS          = Global Options
 DRAWGLOPT_SCRADJUST     = Videoinstillinger
 DRAWGLOPT_CHANGEGUI     = Change Current GUI
 DRAWGLOPT_CHANGEBCK     = Bytt bakgrunsfarge
+DRAWGLOPT_BCKPICNONE    = Background Picture: None
+DRAWGLOPT_BCKPICRAND    = Background Picture: Random
+DRAWGLOPT_BCKPIC1       = Background Picture: PIC1.PNG
+DRAWGLOPT_BCKPICT       = Background Picture:
 DRAWGLOPT_CHANGEDIR     = Bytt spillmappe
 DRAWGLOPT_SWMUSICOFF    = Slå av musikk
 DRAWGLOPT_SWMUSICON     = Slå på musikk
 DRAWGLOPT_INITFTP       = Start FTP tjener
 DRAWGLOPT_TOOLS         = Verktøy
+DRAWGLOPT_REFRESH       = Spill Liste
 DRAWGLOPT_CREDITS       = Opphavsrett
 DRAWGLOPT_FTPINITED     = FTP tjener startet@Vil du at FTP tjeneren skal starte ved oppstart?
 DRAWGLOPT_FTPARINITED   = FTP tjener kjører allerede
@@ -88,11 +103,11 @@ DRAWTOOLS_DELCACHE      = Slett buffer verktøy
 # DRAWTOOLS_SECDISABLE  = Trykk for å slå av Syscall sikkerhet
 # DRAWTOOLS_SECENABLE   = Trykk for å slå på Syscall sikkerhet
 DRAWTOOLS_PKGTOOLS      = .PKG Installere
-DRAWTOOLS_COPYFROM      = Kopier fra /dev_usb/iris til Iris mappe
+DRAWTOOLS_COPYFROM      = Kopier fra /dev_usb/iris til IRISMAN mappe
 DRAWTOOLS_WITHBDVD      = Med BDVD kontroller
 DRAWTOOLS_NOBDVD        = Uten BDVD kontroller
-DRAWTOOLS_NOBDVD2       = Disc - Less payload
-DRAWTOOLS_ARCHIVEMAN    = Archive Manager
+DRAWTOOLS_NOBDVD2       = Cobra / Disc-less payload
+DRAWTOOLS_ARCHIVEMAN    = File Manager
 DRAWTOOLS_COVERSDOWN    = Covers Download
 
 # MAIN - OTHERS
@@ -158,11 +173,11 @@ GLUTIL_SPLITFILE        = Del opp fil
 GLUTIL_WROTE            = Skrev
 GLUTIL_TIME             = Tid
 GLUTIL_TIMELEFT         = Tid igjen
-GLUTIL_HOLDTRIANGLEAB   = Trykk TRIANGLE for å avbryte
-GLUTIL_HOLDTRIANGLESK   = Trykk TRIANGLE for å hoppe over
+GLUTIL_HOLDTRIANGLEAB   = Trykk CIRCLE for å avbryte
+GLUTIL_HOLDTRIANGLESK   = Trykk CIRCLE for å hoppe over
 GLUTIL_ABORTEDUSER      = Avbrutt av bruker
 GLUTIL_ABORTED          = Avbrutt!!!
-GLUTIL_XEXIT            = Trykk CROSS for å gå ut
+GLUTIL_XEXIT            = Trykk TRIANGLE for å gå ut
 GLUTIL_WANTCPYFROM      = vil du kopiere fra
 GLUTIL_WTO              = til
 
@@ -206,7 +221,7 @@ DRAWPSX_ERRSECSIZE      = Feil: Annen sektorstørrelse i ISO fil
 DRAWPSX_ERRUNKSIZE      = Feil: Ukjent sektorstørrelse
 DRAWPSX_DISCEJECT       = PS1 CD matet ut
 DRAWPSX_DISCORDER       = Velg rekkefølge for plate
-DRAWPSX_PRESSOB         = Trykk CIRCLE bytte rekkefølge
+DRAWPSX_PRESSOB         = Trykk TRIANGLE bytte rekkefølge
 DRAWPSX_PRESSXB         = Trykk CROSS for å starte spillet
 DRAWPSX_CHEATMAKE       = PS1 jukseplate funnet, men annen sektorstørrelse@@Ønsker du å lage en kompatibel?
 DRAWPSX_COPYMC          = Copying Memory Card to HDD0 device...
@@ -224,3 +239,17 @@ OUT_OFMEMORY            = Minne er fult
 OPERATION_DONE          = Ferdig!
 PLUG_STORAGE1           = Remember you to plug an USB storage massive device to create the fake disc event
 PLUG_STORAGE2           = Fake Disc Inserted
+
+# GAME LIST
+GAMELIST_ALLGAMES       = All Games
+GAMELIST_PS3GAMES       = PS3 Games
+GAMELIST_VIDEOS         = Videos
+GAMELIST_NETGAMES       = Network Games (via webMAN)
+GAMELIST_STATUS1        = SQUARE  All Retro games       <  >  Select Retro mode       X  Select List
+GAMELIST_STATUS2        = X  Select Game List mode             O  Go Back
+GAMELIST_SCANNING0      = Scanning all games...
+GAMELIST_SCANNING1      = Scanning PS3 games...
+GAMELIST_SCANNING2      = Scanning PlayStation games...
+GAMELIST_SCANNING3      = Scanning Videos...
+GAMELIST_SCANNING4      = Scanning Retro games...
+GAMELIST_SCANNING5      = Scanning network games (webMAN)...
